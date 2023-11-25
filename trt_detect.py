@@ -321,7 +321,7 @@ class yolov8_trt(object):
         self.output_shape = output_shape
 
     
-    def infer(self,input_img,input_size,output_shape):
+    def infer(self,input_img):
 
         input_size = self.input_size
         output_shape = self.output_shape
