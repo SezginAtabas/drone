@@ -3,7 +3,9 @@ import time
 import numpy as np
 import random
 
-
+import tensorrt as trt    
+import pycuda.driver as cuda
+import pycuda.autoinit
 
 
 
@@ -289,3 +291,112 @@ def gen_color(class_num):
         color_list.append(a)
         if len(color_list)==class_num: break
     return color_list
+
+
+
+
+
+
+
+class yolov8_trt(object):
+    #initiate the engine and setup stuff
+    def __init__(self,engine_file_path,input_size, output_shape):
+        TRT_LOGGER = trt.Logger(trt.Logger.INFO)
+        runtime = trt.Runtime(TRT_LOGGER)
+        stream = cuda.Stream()        
+        
+        #deserialize the engine from file
+        with open(engine_file_path, "rb") as f:
+            engine = runtime.deserialize_cuda_engine(f.read())
+        self.context = engine.create_execution_context() 
+        
+        self.engine = engine
+        self.host_inputs = []
+        self.cuda_inputs = []
+        self.host_outputs = []
+        self.cuda_outputs = []
+        self.bindings = []
+        self.stream = stream
+        self.input_size = input_size
+        self.output_shape = output_shape
+
+    
+    def infer(self,input_img,input_size,output_shape):
+
+        input_size = self.input_size
+        output_shape = self.output_shape
+
+        #set the values
+        engine = self.engine
+        host_inputs = self.host_inputs
+        cuda_inputs = self.cuda_inputs
+        host_outputs = self.host_outputs
+        cuda_outputs = self.cuda_outputs
+        bindings = self.bindings
+        stream = self.stream
+        context = self.context
+        
+        input_img_raw = input_img
+        
+        #allocate memory for input and output
+        for binding in engine:
+            #create page-locked memory buffers and allocate memory on host and device
+            size = trt.volume(engine.get_tensor_shape(binding))
+            host_mem = cuda.pagelocked_empty(size, np.float32)
+            cuda_mem = cuda.mem_alloc(host_mem.nbytes)
+        
+             #append the device buffer to device bindings
+            bindings.append(int(cuda_mem))
+            #append the binding the the input or output list
+            if binding == "images":
+                host_inputs.append(host_mem)
+                cuda_inputs.append(cuda_mem)
+            else:
+                host_outputs.append(host_mem)
+                cuda_outputs.append(cuda_mem)
+                
+                
+        #preprocess
+        input_img, _, _, _ = preprocess_image(input_img_raw,input_size[0],input_size[1])
+        #copy input image to host buffer
+        np.copyto(host_inputs[0],input_img.ravel())    
+        #start the counter  
+        start = time.time()
+        #transfer the input data to gpu for execution
+        cuda.memcpy_htod_async(cuda_inputs[0],host_inputs[0],stream)    
+         #run inference
+        context.execute_async_v2(bindings=bindings,stream_handle=stream.handle)
+        #transfer predicitions from the gpu
+        cuda.memcpy_dtoh_async(host_outputs[0],cuda_outputs[0],stream)
+        stream.synchronize()
+        #end the counter
+        end = time.time()
+        #amount of time spent
+        time_spent = str(end - start)
+        output = host_outputs[0]                 
+        
+
+        final_output = input_img_raw
+        
+        output = output.reshape(output_shape[0],output_shape[1],output_shape[2])
+        results = postprocess(preds = output,img = input_img,orig_img =  input_img_raw,
+        OBJ_THRESH = 0.5,NMS_THRESH = 0.3)   
+        
+        
+        box = []
+        conf = 0.0
+        
+        try:
+            results = results[0][0][0]  
+        except:
+            #didnt find img return false
+            return final_output, box, conf, False    
+        box = results[:4]
+        conf = results[4]
+        cls = results[5] 
+        #plot_one_box(box,final_output,label="helipad")      
+        
+        #found an iamge return true for found_img
+        return final_output,box,conf,True
+
+
