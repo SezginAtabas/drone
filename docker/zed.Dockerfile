@@ -111,5 +111,6 @@ ENTRYPOINT ["/sbin/ros_entrypoint.sh"]
 CMD ["bash"]
 
 
-# docker run  --gpus 0--privileged -e DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix -v /dev:/dev -e NVIDIA_DRIVER_CAPABILITIES=all  --rm -it <container_tag>
+# for jetson use nvidia container runtime --
+# docker run  --gpus 0 --privileged -e DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix -v /dev:/dev -e NVIDIA_DRIVER_CAPABILITIES=all  --rm -it <container_tag>
 # ros2 launch zed_wrapper zed_camera.launch.py camera_model:=

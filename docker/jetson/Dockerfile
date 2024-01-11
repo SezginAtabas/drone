@@ -1,3 +1,7 @@
+
+# NOTE: install pycuda in the container. pip install pycuda==2023.1
+
+
 ARG IMAGE_NAME=dustynv/ros:humble-ros-base-l4t-r35.4.1
 # CHANGE THE L4T version to 35.4.1 and jetpack version to 5.12
 FROM ${IMAGE_NAME}
@@ -86,8 +90,9 @@ RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/install/setup.bash && \
 
 
 
+
 # install some deps
-RUN pip install transforms3d pycuda setuptools==58.2.0
+RUN pip install transforms3d setuptools==58.2.0
 
 # copy the package
 COPY repos/drone/ros2/drone_pkg /root/ros2_ws/src/
@@ -95,6 +100,8 @@ COPY repos/drone/ros2/drone_pkg /root/ros2_ws/src/
 # build drone_pkg
 RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/install/setup.bash && \
     colcon build --packages-select drone_pkg"
+
+
 
 WORKDIR /root/ros2_ws
 
@@ -107,12 +114,9 @@ CMD ["bash"]
 
 
 # docker run --runtime nvidia -it --privileged --ipc=host --pid=host -e NVIDIA_DRIVER_CAPABILITIES=all -e DISPLAY \
-# -v /dev:/dev -v /tmp/.X11-unix/:/tmp/.X11-unix \
+#-v /dev:/dev -v /tmp/.X11-unix/:/tmp/.X11-unix \
 # -v ${HOME}/zed_docker_ai/:/usr/local/zed/resources/ \
- # name
+#  dev:trt_zed2
 
 # ros2 launch zed_wrapper zed_camera.launch.py camera_model:=
-#
-#
-#
 #
