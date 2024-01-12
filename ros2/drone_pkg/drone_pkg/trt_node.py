@@ -19,7 +19,7 @@ import pycuda.autoinit
 
 
 # ros2 launch zed_display_rviz2 display_zed_cam.launch.py camera_model:=<camera model>
-
+# ros2 launch zed_wrapper zed_camera.launch.py camera_model:=
 
 
 
@@ -44,11 +44,11 @@ class MyGetZedInfo(Node):
         
         self.bridge = CvBridge()
         
-        # tensorrt engine file paths
-        engine_file = '/home/xtrana/ros2_ws/src/drone_pkg/trt_engines/landing_134.engine'
+        # tensorrt landing pad engine in docker container
+        engine_file = '/root/ros2_ws/src/drone_pkg/trt_engines/landing_134.engine'
 
-        # engine file for the avocado
-        avo_engine_file = '/home/xtrana/ros2_ws/src/drone_pkg/trt_engines/avo_n_42.engine'
+        # engine file for the avocado in docker container
+        avo_engine_file = '/root/ros2_ws/src/drone_pkg/trt_engines/avo_n_42.engine'
 
         INPUT_SIZE = (384, 640)
         OUTPUT_SHAPE = [1, 5, 5040]
