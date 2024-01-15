@@ -1,3 +1,4 @@
+
 import cv2
 import random
 import time
@@ -18,6 +19,8 @@ input "images" with shape(1, 3, 384, 640) DataType.FLOAT
 output "output0" with shape(1, 5, 5040) DataType.FLOAT
 """
 def plot_one_box(x, img, color=None, label=None, line_thickness=None):
+        
+
             
         """
         description: Plots one bounding box on image img,
@@ -53,6 +56,16 @@ def plot_one_box(x, img, color=None, label=None, line_thickness=None):
                 thickness=tf,
                 lineType=cv2.LINE_AA,
             )
+def xyxy2xywh(box):
+    x1 = box[0]
+    y1 = box[1]
+    x2 = box[2]
+    y2 = box[3]
+    x = (x1 + x2)/2
+    y = (y1 + y2)/2
+    w = x2 - x1
+    h = y2 - y1
+    return [x, y, w, h]
 
 
 def main():
@@ -90,14 +103,14 @@ def main():
     y_trt = yolov8_trt(engine_file_path=engine_file,input_size=INPUT_SIZE, output_shape=OUTPUT_SHAPE)
     avo_trt = yolov8_trt(engine_file_path=engine_file_avocado,input_size=INPUT_SIZE, output_shape=OUTPUT_SHAPE)
 
-    
+
     # start time to calculate when to swich between avocado and landing pad
     start_time = time.time()
     # flag to keep track of which model is running
     avocado = False
 
     found_img = False
-    
+
     while zed.grab() == sl.ERROR_CODE.SUCCESS:
         #grab an image in sl.mat
         zed.retrieve_image(img_zed, sl.VIEW.LEFT)
@@ -105,6 +118,7 @@ def main():
         img_np = img_zed.get_data()
         frame = cv2.cvtColor(img_np, cv2.COLOR_BGRA2BGR)
 
+        """
         # switch between avocado and landing pad every 10 seconds
         if time.time() - start_time > 10:
             avocado = not avocado
@@ -114,27 +128,43 @@ def main():
             else:
                 print("switching to landing pad")
 
+        """
 
         #run inference based on the flag
         if avocado:
-            res,box,conf,found_img = avo_trt.infer(input_img=frame)          
+            img, results = avo_trt.infer(input_img=frame)          
         else:
-            res,box,conf,found_img = y_trt.infer(input_img=frame)
+            img, results = y_trt.infer(input_img=frame)
         
-        #if an img is found
-        if found_img:     
+        boxes = []
+        confs = []
+        for result in results:
+            predicitions = result[0]
+            for prediction in predicitions:
+                bbox = prediction[:4]
+                conf = prediction[4]
+                cls = prediction[5]
+
+                boxes.append(bbox)
+                confs.append(conf)
+
+        # if a target was detected 
+        if len(boxes) > 0:
+            # measure depth
+            zed.retrieve_measure(depth, sl.MEASURE.DEPTH)
             
-            
+
+        img_out = img
+        # calculate the depth of the detections and plot
+        for box in boxes:
+               
             #print(box)
             center_point_x = int((box[0] + box[2]) / 2)
             center_point_y = int((box[1] + box[3]) / 2)
+
             #find the depth at the center of the target
-            zed.retrieve_measure(depth, sl.MEASURE.DEPTH)
             err,depth_value = depth.get_value(center_point_x,center_point_y)
 
-            #get the camera information
-            #TODO: Might not need to run during the runtime constantly 
-            #never saw the values chnage. but beter safe than sorry.
             camera_info = zed.get_camera_information()
             calibration_params = camera_info.camera_configuration.calibration_parameters
 
@@ -155,13 +185,13 @@ def main():
             label_text = f"x:{X:.2f} y:{Y:.2f} z:{Z:.2f}"
             
             #plot the results
-            plot_one_box(box,res,label=label_text)
+            plot_one_box(box,img_out,label=label_text)
                   
     
         if cv2.waitKey(1) & 0xff == ord('q'):
             break
         
-        cv2.imshow("vid",res)
+        cv2.imshow("vid",img_out)
 
     
     #close everything at the end
@@ -280,22 +310,8 @@ class yolov8_trt(object):
         results = self.postprocess(preds = output,img = input_img,orig_img =  input_img_raw,
         OBJ_THRESH = 0.5,NMS_THRESH = 0.3)   
         
-        
-        box = []
-        conf = 0.0
-        
-        try:
-            results = results[0][0][0]  
-        except:
-            #didnt find img return false
-            return final_output, box, conf, False    
-        box = results[:4]
-        conf = results[4]
-        cls = results[5] 
-        #plot_one_box(box,final_output,label="helipad")      
-        
-        #found an iamge return true for found_img
-        return final_output,box,conf,True       
+
+        return final_output, results
 
     def destroy(self):
         #remove the context from the gpu
