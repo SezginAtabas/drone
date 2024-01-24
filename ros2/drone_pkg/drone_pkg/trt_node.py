@@ -11,7 +11,6 @@ import cv2
 import numpy as np
 import time
 import random
-import math
 from cv_bridge import CvBridge
 
 import tensorrt as trt    
@@ -20,7 +19,7 @@ import pycuda.autoinit
 
 
 # ros2 launch zed_display_rviz2 display_zed_cam.launch.py camera_model:=<camera model>
-
+# ros2 launch zed_wrapper zed_camera.launch.py camera_model:=
 
 
 
@@ -45,11 +44,11 @@ class MyGetZedInfo(Node):
         
         self.bridge = CvBridge()
         
-        # tensorrt engine file paths
-        engine_file = '/home/xtrana/ros2_ws/src/drone_pkg/trt_engines/landing_134.engine'
+        # tensorrt landing pad engine in docker container
+        engine_file = '/root/ros2_ws/src/drone_pkg/trt_engines/landing_134.engine'
 
-        # engine file for the avocado
-        avo_engine_file = '/home/xtrana/ros2_ws/src/drone_pkg/trt_engines/avo_n_42.engine'
+        # engine file for the avocado in docker container
+        avo_engine_file = '/root/ros2_ws/src/drone_pkg/trt_engines/avo_n_42.engine'
 
         INPUT_SIZE = (384, 640)
         OUTPUT_SHAPE = [1, 5, 5040]
@@ -140,6 +139,7 @@ class MyGetZedInfo(Node):
         self.depth_map_width = msg.width
         self.depth_map = memoryview(msg.data).cast('f')
 
+
     def rgb_img_callback(self, msg):
         # convert the Image msg to cv2 image
 
@@ -172,85 +172,81 @@ class MyGetZedInfo(Node):
             # store the current_detection_target in a variable to aviod changing it while running the detection
             current_detection_target = self.current_detection_target
 
-            if current_detection_target == 'landing_pad':
-                # run inference for landing pad
-                img, results = self.avo_trt.infer(input_img=input_img)
-            else:
-                # run inference for avocado
-                img, results = self.landing_trt.infer(input_img=input_img)
 
-            # NOTE: For now just calculate for one detection. until multiple object tracking is implemented   
-    
-            # find the nearest target.
-            nearest = {'pred' : None, 'x' : None, 'y': None, 'z' : None}
-            for result in results:
-                predicitions = result[0]
-                for prediction in predicitions:
-                    box = prediction[:4]
-                    conf = prediction[4]
-                    cls = prediction[5]
+            
 
+            # detection for the landing pad
+            if current_detection_target == "landing_pad":
+                self.get_logger().info("running trt detection for landing pad ... ")
+                # inference
+                raw_img, box, conf, target_found = self.landing_trt.infer(input_img=input_img) 
+
+                if target_found: 
+                    # find the center point of the bbox
                     u = int((box[0] + box[2]) / 2) # x
                     v = int((box[1] + box[3]) / 2) # y
 
                     # linear index of the center pixel of bbox
                     center_idx = u + depth_width * v
-                
+                    
+
                     # real world distance from the target
                     Z = input_depth_map[center_idx]
                     X = ((u - c_x) * Z) / (f_x)
                     Y = ((v - c_y) * Z) / (f_y)
-                    
-                    # shortest distance based on depth only
-                    if nearest['z'] == None:
-                        nearest['pred'] = prediction
-                        nearest['x'] = X
-                        nearest['y'] = Y
-                        nearest['z'] = Z
 
-                    elif Z < nearest['z']:
-                        nearest['pred'] = prediction
-                        nearest['x'] = X
-                        nearest['y'] = Y
-                        nearest['z'] = Z
-                        
-            
-
-            # send the coordinates of the closest detected target.
-            if nearest['pred'] != None:
-                if current_detection_target == 'landing_pad':
-                    self.target_landing_pos['x'] = nearest['x']
-                    self.target_landing_pos['y'] = nearest['y']
-                    self.target_landing_pos['z'] = nearest['z']
+                    self.target_landing_pos['x'] = X
+                    self.target_landing_pos['y'] = Y
+                    self.target_landing_pos['z'] = Z
 
                     # publish the target landing position
                     self.last_published_lading_pos.header.stamp = self.get_clock().now().to_msg()
                     self.last_published_lading_pos.header.frame_id = "d_landing_pos"
-                    self.last_published_lading_pos.point.x = nearest['x']
-                    self.last_published_lading_pos.point.y = nearest['y']
-                    self.last_published_lading_pos.point.z = nearest['z']
+                    self.last_published_lading_pos.point.x = X
+                    self.last_published_lading_pos.point.y = Y
+                    self.last_published_lading_pos.point.z = Z
                     
                     # publish the target landing position
                     self.target_landing_pos_pub.publish(self.last_published_lading_pos)
 
-                    self.get_logger().info(f"x:{nearest['x']:.2f} y:{nearest['y']:.2f} z:{nearest['z']:.2f}")
+                    self.get_logger().info(f"x:{X:.2f} y:{Y:.2f} z:{Z:.2f}")
+
                 
-                else:
-                    self.last_avo_pos['x'] = nearest['x']
-                    self.last_avo_pos['y'] = nearest['y']
-                    self.last_avo_pos['z'] = nearest['z']
 
-                    # publish the target landing position
+            # detection for the avocado
+            elif self.current_detection_target == "avocado":
+                self.get_logger().info("running trt detection for avocado ... ")
+                # inference
+                raw_img, box, conf, target_found = self.avo_trt.infer(input_img=input_img)
+
+                if target_found:
+                    # find the center point of the bbox
+                    u = int((box[0] + box[2]) / 2)
+                    v = int((box[1] + box[3]) / 2)
+
+                    # linear index of the center pixel of bbox
+                    center_idx = u + depth_width * v
+
+                    # real world distance from the target
+                    Z = input_depth_map[center_idx]
+                    X = ((u - c_x) * Z) / (f_x)
+                    Y = ((v - c_y) * Z) / (f_y)
+
+                    self.last_avo_pos['x'] = X
+                    self.last_avo_pos['y'] = Y
+                    self.last_avo_pos['z'] = Z
+
+                    # publish the avocado position
                     self.last_published_avo_pos.header.stamp = self.get_clock().now().to_msg()
-                    self.last_published_avo_pos.header.frame_id = "d_landing_pos"
-                    self.last_published_avo_pos.point.x = nearest['x']
-                    self.last_published_avo_pos.point.y = nearest['y']
-                    self.last_published_avo_pos.point.z = nearest['z']
-                    
-                    # publish the target landing position
-                    self.target_landing_pos_pub.publish(self.last_published_avo_pos)
+                    self.last_published_avo_pos.header.frame_id = "d_avo_pos"
+                    self.last_published_avo_pos.point.x = X
+                    self.last_published_avo_pos.point.y = Y
+                    self.last_published_avo_pos.point.z = Z
 
-                    self.get_logger().info(f"x:{nearest['x']:.2f} y:{nearest['y']:.2f} z:{nearest['z']:.2f}")
+                    # publish the avocado position
+                    self.avocado_pos_pub.publish(self.last_published_avo_pos)
+
+                    self.get_logger().info(f"x:{X:.2f} y:{Y:.2f} z:{Z:.2f}")
 
         
 
@@ -354,7 +350,6 @@ class yolov8_trt(object):
 
 
 
- 
         #amount of time spent
         time_spent = str(end - start)
         output = host_outputs[0]     
@@ -366,8 +361,22 @@ class yolov8_trt(object):
         results = self.postprocess(preds = output,img = input_img,orig_img =  input_img_raw,
         OBJ_THRESH = 0.5,NMS_THRESH = 0.3)   
         
-
-        return final_output, results     
+        
+        box = []
+        conf = 0.0
+        
+        try:
+            results = results[0][0][0]  
+        except:
+            #didnt find img return false
+            return final_output, box, conf, False    
+        box = results[:4]
+        conf = results[4]
+        cls = results[5] 
+        #plot_one_box(box,final_output,label="helipad")      
+        
+        #found an iamge return true for found_img
+        return final_output,box,conf,True       
 
     def destroy(self):
         #remove the context from the gpu
