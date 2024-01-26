@@ -1,5 +1,7 @@
 
-# NOTE: install pycuda in the container. pip install pycuda==2023.1
+# NOTE: install pycuda and norfair in the container. 
+# pip3 install pycuda==2023.1
+# and pip3 install norfair
 
 
 ARG IMAGE_NAME=dustynv/ros:humble-ros-base-l4t-r35.4.1
@@ -87,16 +89,13 @@ RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/install/setup.bash && \
   ' -DCMAKE_CXX_FLAGS="-Wl,--allow-shlib-undefined"' \
   ' --no-warn-unused-cli' "
 
-
-
-
-
 # install some deps
 RUN pip install transforms3d setuptools==58.2.0
 
 # copy the package
-COPY repos/drone/ros2/drone_pkg /root/ros2_ws/src/
+COPY drone_pkg /root/ros2_ws/src/drone_pkg
 
+WORKDIR /root/ros2_ws/
 # build drone_pkg
 RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/install/setup.bash && \
     colcon build --packages-select drone_pkg"
