@@ -1,254 +1,238 @@
 
+import rclpy 
+from rclpy.node import Node
+
+from sensor_msgs.msg import Image
+from sensor_msgs.msg import CameraInfo
+from geometry_msgs.msg import PointStamped
+from std_msgs.msg import String
+
 import cv2
-import random
-import time
 import numpy as np
+import time
+import random
+from cv_bridge import CvBridge
 
 import tensorrt as trt    
 import pycuda.driver as cuda
 import pycuda.autoinit
 
-import pyzed.sl as sl
+
+# import norfair tracker
+from norfair import Detection, Tracker
 
 
-from norfair import Tracker, Detection, draw_points
+# ros2 launch zed_display_rviz2 display_zed_cam.launch.py camera_model:=<camera model>
 
-"""
-landing_134.engine
+# SENSOR_QOS used for most of sensor streams
+SENSOR_QOS = rclpy.qos.qos_profile_sensor_data
 
-input "images" with shape(1, 3, 384, 640) DataType.FLOAT
-output "output0" with shape(1, 5, 5040) DataType.FLOAT
-"""
-def plot_one_box(x, img, color=None, label=None, line_thickness=None):
+#gets the data needed for the TensorRT model to run from the ZED camera
+class MyGetZedInfo(Node):
+    def __init__(self):
+        super().__init__('my_get_zed_info')
+
+        self.depth_map = []
+        self.rgb_img = []
+        # last published position for landing and avo. can be used to help the drone find the targets if drone loses them.
+        # TODO: Instead of just saving last know position. Save all detections and drones position at the time of the detection
+        self.last_published_lading_pos = PointStamped()
+        self.last_published_avo_pos = PointStamped()
+        self.current_detection_target = "landing_pad" # which target to detect. can be avocado or landing_pad
+
+        self.target_landing_pos = {'x' : 0, 'y': 0, 'z': 0 }
+        self.last_avo_pos = {'x' : 0, 'y': 0, 'z': 0 }
         
+        self.bridge = CvBridge()
+        
+        # tensorrt engine file paths
+        engine_file = '/root/ros2_ws/src/drone_pkg/trt_engines/avo_n_42.engine'
 
-            
-        """
-        description: Plots one bounding box on image img,
-                    this function comes from YoLov8 project.
-        param: 
-            x:      a box likes [x1,y1,x2,y2]
-            img:    a opencv image object
-            color:  color to draw rectangle, such as (0,255,0)
-            label:  str
-            line_thickness: int
-        return:
-            no return
+        # engine file for the avocado
+        avo_engine_file = '/root/ros2_ws/src/drone_pkg/trt_engines/landing_134.engine'
 
-        """
-        tl = (
-                line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1
-        )  # line/font thickness
-        color = color or [random.randint(0, 255) for _ in range(3)]
-        c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
-        cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
-        if label:
-            tf = max(tl - 1, 1)  # font thickness
-            t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
-            c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
-            cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)  # filled
-            cv2.putText(
-                img,
-                label,
-                (c1[0], c1[1] - 2),
-                0,
-                tl / 3,
-                [225, 255, 255],
-                thickness=tf,
-                lineType=cv2.LINE_AA,
-            )
-def xyxy2xywh(box):
-    x1 = box[0]
-    y1 = box[1]
-    x2 = box[2]
-    y2 = box[3]
-    x = (x1 + x2)/2
-    y = (y1 + y2)/2
-    w = x2 - x1
-    h = y2 - y1
-    return [x, y, w, h]
+        INPUT_SIZE = (384, 640)
+        OUTPUT_SHAPE = [1, 5, 5040]
+        
+        # create the norfair tracker 
+        try:
+            # NOTE: These parameters are for testing and are not final.
+            self.tracker = Tracker(distance_function="euclidean", distance_threshold=1000.0, hit_counter_max = 300)
+        except Exception as e:
+            self.get_logger().error(f"Error Loading tracker! \n {e}")
+            exit()
 
-
-def yolo_to_norfair(yolo_detections):
-    """
-    converts yolo detections to nofair Detection to be fed into norfair tracking.
-    """
-
-    nofair_detections : list[Detection] = []
-    for yolo_d in yolo_detections:
-        bbox = np.array(
-            [
-                [yolo_d[0].item(), yolo_d[1].item()],
-                [yolo_d[2].item(), yolo_d[3].item()],
-            ]
-        )
-        scores = np.array(
-            [yolo_d[4].item(), yolo_d[4].item()]
-        )
-
-        nofair_detections.append(
-            Detection(
-                points=bbox, scores=scores, label=int(yolo_d[-1].item())
-            )
-        )
-
-    return nofair_detections
-
-
-def main():
-
-    engine_file = 'trt_engines/landing_134.engine'
-    engine_file_avocado = 'trt_engines/avo_n_42.engine' 
-
-
-    INPUT_SIZE = (384, 640)
-    OUTPUT_SHAPE = [1, 5, 5040]
-    
-    #open zed camera and set the parameters
-    zed = sl.Camera()
-    init_params = sl.InitParameters()  
-    init_params_resolution = sl.RESOLUTION.HD720
-    init_params.camera_fps = 30
-    init_params.sdk_verbose = 1
-    init_params.coordinate_units = sl.UNIT.METER
-    init_params.depth_mode = sl.DEPTH_MODE.ULTRA
-    init_params.depth_maximum_distance = 10
-
-    err = zed.open(init_params)
-    if err != sl.ERROR_CODE.SUCCESS:
-        exit(1)
-
-    #create sl.Mat objects
-    img_zed= sl.Mat()
-    depth = sl.Mat()
-    #set zed camera settings
-    zed.set_camera_settings(sl.VIDEO_SETTINGS.EXPOSURE, 70)
-    zed.set_camera_settings(sl.VIDEO_SETTINGS.BRIGHTNESS, 6)    
-
-
-    # create the trt engine for landing pad and avocado
-    y_trt = yolov8_trt(engine_file_path=engine_file,input_size=INPUT_SIZE, output_shape=OUTPUT_SHAPE)
-    avo_trt = yolov8_trt(engine_file_path=engine_file_avocado,input_size=INPUT_SIZE, output_shape=OUTPUT_SHAPE)
-
-
-    # start time to calculate when to swich between avocado and landing pad
-    start_time = time.time()
-    # flag to keep track of which model is running
-    avocado = False
-
-    found_img = False
-
-    # create the tracker 
-    tracker = Tracker(distance_function="euclidean", distance_threshold=500.0, hit_counter_max = 300, detection_threshold = 30)
-
-    while zed.grab() == sl.ERROR_CODE.SUCCESS:
         
         try:
-            #grab an image in sl.mat
-            zed.retrieve_image(img_zed, sl.VIEW.LEFT)
+            # create the tensorrt class instance
+            self.landing_trt = yolov8_trt(engine_file_path=engine_file, input_size=INPUT_SIZE, output_shape=OUTPUT_SHAPE)
+            # create another instance for the avocado
+            self.avo_trt = yolov8_trt(engine_file_path=avo_engine_file, input_size=INPUT_SIZE, output_shape=OUTPUT_SHAPE)
+        except:
+            self.get_logger().error("Couldnt create tensorrt engines. Please Check File paths. Exiting ...")    
+            exit()
 
-            counter_start = time.perf_counter()
-            #use get_data() to get the numpy array
-            img_np = img_zed.get_data()
-            frame = cv2.cvtColor(img_np, cv2.COLOR_BGRA2BGR)
+        self.rgb_img_width = 0
+        self.rgb_img_height = 0
+        self.depth_map_width = 0
+        
+        # zed camera info. For image correction.
+        self.f_x = 0
+        self.f_y = 0
+        self.c_x = 0
+        self.c_y = 0
+        
+        #QoS profile for depth topic
+        depth_qos = rclpy.qos.QoSProfile(depth=10)
+        depth_qos.reliability = rclpy.qos.QoSReliabilityPolicy.BEST_EFFORT
+        depth_qos.durability = rclpy.qos.QoSDurabilityPolicy.VOLATILE
 
-            """
-            # switch between avocado and landing pad every 10 seconds
-            if time.time() - start_time > 10:
-                avocado = not avocado
-                start_time = time.time()
-                if avocado:
-                    print("switching to avocado")
-                else:
-                    print("switching to landing pad")
+        #QoS profile for rgb rectified image
+        rgb_img_qos = rclpy.qos.QoSProfile(depth=10)
+        rgb_img_qos.reliability = rclpy.qos.QoSReliabilityPolicy.BEST_EFFORT
+        rgb_img_qos.durability = rclpy.qos.QoSDurabilityPolicy.VOLATILE
 
-            """
+        # QoS profile for zed camera info
+        camera_info_qos = rclpy.qos.QoSProfile(depth=10)
+        camera_info_qos.reliability = rclpy.qos.QoSReliabilityPolicy.BEST_EFFORT
+        camera_info_qos.durability = rclpy.qos.QoSDurabilityPolicy.VOLATILE
 
-            #run inference based on the flag
-            if avocado:
-                img, results = avo_trt.infer(input_img=frame)          
-            else:
-                img, results = y_trt.infer(input_img=frame)
+        
+
+        # sub for current detection target
+        self.current_target_sub = self.create_subscription(
+            String, 
+            '/my_drone/current_detection_target',
+            self.current_detection_target_callback,
+            10
+        )
+  
+        #create the depth map subscriber
+        self.depth_sub = self.create_subscription(
+            Image,
+            '/zed/zed_node/depth/depth_registered',
+            self.depth_callback,
+            depth_qos
+        )
+
+        self.rgb_img_sub = self.create_subscription(
+            Image,
+            '/zed/zed_node/rgb/image_rect_color',
+            self.rgb_img_callback,
+            rgb_img_qos
+        )
+
+        self.camera_info_sub = self.create_subscription(
+            CameraInfo,
+            'zed/zed_node/rgb/camera_info',
+            self.camera_info_callback,
+            camera_info_qos
+        )
+
+
+        # create a publisher for the target landing position
+        self.target_landing_pos_pub = self.create_publisher(PointStamped, '/my_drone/landing_target_position', qos_profile=SENSOR_QOS)
+        # publisher for avocado position
+        self.avocado_pos_pub = self.create_publisher(PointStamped, '/my_drone/avocado_target_position', qos_profile=SENSOR_QOS)
+
+
+
+    def current_detection_target_callback(self, msg):
+        self.current_detection_target = msg.data
+        self.get_logger().info(f"current detection target: {self.current_detection_target}")
+    
+    def camera_info_callback(self, msg):
+        self.f_x = msg.k[0]
+        self.f_y = msg.k[4]
+        self.c_x = msg.k[2]
+        self.c_y = msg.k[5]
+
+    def depth_callback(self, msg):
+        # Get a pointer to the depth values casting the data pointer to floating point
+        if self.depth_map == []:
+            self.get_logger().info(f"First Depth Image Received")
+        self.depth_map_width = msg.width
+        self.depth_map = memoryview(msg.data).cast('f')
+
+    def rgb_img_callback(self, msg):
+        # convert the Image msg to cv2 image
+
+        self.rgb_img_width = msg.width
+        self.rgb_img_height = msg.height
+
+        self.rgb_img = self.bridge.imgmsg_to_cv2(img_msg=msg, desired_encoding='bgr8')
+
+        # run the detection for the image
+        self.detect()
+
+    def yolo_to_norfair(self, yolo_detections):
+        """
+        converts yolo detections to nofair Detection to be fed into norfair tracking.
+        """
+
+        nofair_detections : list[Detection] = []
+        for yolo_d in yolo_detections:
+            bbox = np.array(
+                [
+                    [yolo_d[0].item(), yolo_d[1].item()],
+                    [yolo_d[2].item(), yolo_d[3].item()],
+                ]
+            )
+            scores = np.array(
+                [yolo_d[4].item(), yolo_d[4].item()]
+            )
+
+            nofair_detections.append(
+                Detection(
+                    points=bbox, scores=scores, label=int(yolo_d[-1].item())
+                )
+            )
+
+        return nofair_detections
+    
+    # gets called when rbg image is received. 
+    def detect(self):
+        
+        try:
             
+            # store the current_detection_target in a variable to aviod changing it while running the detection
+            current_detection_target = self.current_detection_target
 
-            zed.retrieve_measure(depth, sl.MEASURE.DEPTH)
+            input_img  = self.rgb_img
+            input_depth_map = self.depth_map
 
-            boxes = []
-            confidance = []
-            img_out_tracked = img
+            im_width =  self.rgb_img_width
+            im_height = self.rgb_img_height
+            depth_width = self.depth_map_width
+
+            # zed camera info
+            f_x = self.f_x
+            f_y = self.f_y
+            c_x = self.c_x
+            c_y = self.c_y
+            
+            # run inference based on current target 
+            if current_detection_target == 'landing_pad':
+                img, results = self.landing_trt.infer(input_img=input_img)
+            if current_detection_target == 'avocado':
+                img, results = self.avo_trt.infer(input_img=input_img)
+                    
+            # loop over detection results and update the tracker        
             for result in results:
                 predictions = result[0]
-                norfair_detections = yolo_to_norfair(predictions)
-                tracked_objects = tracker.update(norfair_detections)
+                norfair_detections = self.yolo_to_norfair(predictions)
+                tracked_objects = self.tracker.update(norfair_detections)
                 if tracked_objects != []:
                     print(tracked_objects)
-                                
-                for prediction in predictions:
-                    bbox = prediction[:4]
-                    conf = prediction[4]
-                    cls = prediction[5]
 
-                    
+           
 
-                    boxes.append(bbox)
-                    confidance.append(conf)
-            
-            img_out = img
-            # calculate the depth of the detections and plot
-            for box in boxes:
-                
-                #print(box)
-                center_point_x = int((box[0] + box[2]) / 2)
-                center_point_y = int((box[1] + box[3]) / 2)
+        except IndexError as e:
+            print(e)            
 
-                #find the depth at the center of the target
-                err,depth_value = depth.get_value(center_point_x,center_point_y)
-
-                camera_info = zed.get_camera_information()
-                calibration_params = camera_info.camera_configuration.calibration_parameters
-
-                f_x = calibration_params.left_cam.fx
-                f_y = calibration_params.left_cam.fy
-                c_x = calibration_params.left_cam.cx
-                c_y = calibration_params.left_cam.cy
-                
-                #convert to 3d coordinates
-                u, v = center_point_x, center_point_y
-                
-                Z = depth_value
-                X = ((u - c_x) * Z) / (f_x)
-                Y = ((v - c_y) * Z) / (f_y)
-                
-                
-
-                #label_text = f"x:{X:.2f} y:{Y:.2f} z:{Z:.2f}"
-                
-                label_text = f""
-
-                #plot the results
-                plot_one_box(box,img_out,label=label_text)
-                counter_end = time.perf_counter()
-                fps =  1 / (counter_end - counter_start)
-                # print(fps)
-        except:
-            print("ERROR!")    
-            y_trt.destroy()
-            avo_trt.destroy()
-            zed.close()  
-                  
-
-        if cv2.waitKey(1) & 0xff == ord('q'):
-            break
         
-        #cv2.imshow("vid",img_out_tracked)
 
-    
-    #close everything at the end
-    y_trt.destroy()
-    avo_trt.destroy()
-    zed.close()  
-    #cv2.destroyAllWindows()  
-    
+
 class yolov8_trt(object):
     #initiate the engine and setup stuff
     def __init__(self, engine_file_path, input_size, output_shape):
@@ -304,6 +288,20 @@ class yolov8_trt(object):
 
     
     def infer(self, input_img):
+        """
+        Runs inference.
+        Input: Image to run Inference on
+        Output: Image that was used , detection results.
+        ---------------
+        To loop over detections
+         for result in results:
+                predictions = result[0]
+                for prediction in predictions:
+                    bbox = prediction[:4]
+                    conf = prediction[4]
+                    cls = prediction[5]
+        ---------------            
+        """
 
         # push the context to the gpu
         self.ctx.push()
@@ -320,10 +318,7 @@ class yolov8_trt(object):
         stream = self.stream
         context = self.context
         
-        input_img_raw = input_img
-        
-       
-                
+        input_img_raw = input_img             
                 
         #preprocess
         input_img, _, _, _ = self.preprocess_image(input_img_raw,input_size[0],input_size[1])
@@ -344,9 +339,6 @@ class yolov8_trt(object):
 
         # remove the context from the gpu
         self.ctx.pop()
-
-
-
 
         #amount of time spent
         time_spent = str(end - start)
@@ -648,12 +640,18 @@ class yolov8_trt(object):
         return color_list
 
 
+def main(args=None):
+    rclpy.init(args=args)
+
+    info_node = MyGetZedInfo()
 
 
+    rclpy.spin(info_node)
 
 
-
-
+    cv2.destroyAllWindows()    
+    info_node.destroy_node()
+    rclpy.shutdown()        
 
 if __name__ == "__main__":
     main()
