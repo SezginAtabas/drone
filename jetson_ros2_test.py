@@ -32,8 +32,27 @@ class MyGetZedInfo(Node):
     def __init__(self):
         super().__init__('my_get_zed_info')
 
-        self.depth_map = []
+        INPUT_SIZE = (384, 640)
+        OUTPUT_SHAPE = [1, 5, 5040]
+
+        # tensorrt engine file paths
+        engine_file = '/home/xtrana/ros2_ws/src/drone_pkg/trt_engines/pc/pc_landing_134.engine' # landing_pad
+        avo_engine_file = '/home/xtrana/ros2_ws/src/drone_pkg/trt_engines/pc/pc_avo_n_42.engine' # avocado
+
+        # rgb img variables
         self.rgb_img = []
+        self.rgb_img_width = 0
+        self.rgb_img_height = 0
+        # vas for depth image
+        self.depth_map = []
+        self.depth_map_width = 0
+        
+        # zed camera info. For image correction.
+        self.f_x = 0
+        self.f_y = 0
+        self.c_x = 0
+        self.c_y = 0
+        
         # last published position for landing and avo. can be used to help the drone find the targets if drone loses them.
         # TODO: Instead of just saving last know position. Save all detections and drones position at the time of the detection
         self.last_published_lading_pos = PointStamped()
@@ -42,18 +61,18 @@ class MyGetZedInfo(Node):
 
         self.target_landing_pos = {'x' : 0, 'y': 0, 'z': 0 }
         self.last_avo_pos = {'x' : 0, 'y': 0, 'z': 0 }
-        
+
+        # variables to check if all need messages are received for the detection to start
+        self.received_depth_image = False
+        self.received_rgb_image = False
+        self.received_camera_info = False
+
+
+
+        # bridge for converting ros img messages to opencv images.
         self.bridge = CvBridge()
-        
-        # tensorrt engine file paths
-        engine_file = '/root/ros2_ws/src/drone_pkg/trt_engines/avo_n_42.engine'
 
-        # engine file for the avocado
-        avo_engine_file = '/root/ros2_ws/src/drone_pkg/trt_engines/landing_134.engine'
 
-        INPUT_SIZE = (384, 640)
-        OUTPUT_SHAPE = [1, 5, 5040]
-        
         # create the norfair tracker 
         try:
             # NOTE: These parameters are for testing and are not final.
@@ -72,15 +91,6 @@ class MyGetZedInfo(Node):
             self.get_logger().error("Couldnt create tensorrt engines. Please Check File paths. Exiting ...")    
             exit()
 
-        self.rgb_img_width = 0
-        self.rgb_img_height = 0
-        self.depth_map_width = 0
-        
-        # zed camera info. For image correction.
-        self.f_x = 0
-        self.f_y = 0
-        self.c_x = 0
-        self.c_y = 0
         
         #QoS profile for depth topic
         depth_qos = rclpy.qos.QoSProfile(depth=10)
@@ -105,8 +115,7 @@ class MyGetZedInfo(Node):
             '/my_drone/current_detection_target',
             self.current_detection_target_callback,
             10
-        )
-  
+        ) 
         #create the depth map subscriber
         self.depth_sub = self.create_subscription(
             Image,
@@ -135,6 +144,9 @@ class MyGetZedInfo(Node):
         # publisher for avocado position
         self.avocado_pos_pub = self.create_publisher(PointStamped, '/my_drone/avocado_target_position', qos_profile=SENSOR_QOS)
 
+        # call detection at 30
+        self.detect_timer =  self.create_timer(timer_period_sec= 1/30, callback=self.detect)
+        
 
 
     def current_detection_target_callback(self, msg):
@@ -142,20 +154,33 @@ class MyGetZedInfo(Node):
         self.get_logger().info(f"current detection target: {self.current_detection_target}")
     
     def camera_info_callback(self, msg):
+        
+        if not self.received_camera_info:
+            self.get_logger().info('received camera information.')
+            self.received_camera_info = True
+
         self.f_x = msg.k[0]
         self.f_y = msg.k[4]
         self.c_x = msg.k[2]
         self.c_y = msg.k[5]
 
     def depth_callback(self, msg):
-        # Get a pointer to the depth values casting the data pointer to floating point
-        if self.depth_map == []:
+        # check if this depth message the first one.
+        if not self.received_depth_image:
             self.get_logger().info(f"First Depth Image Received")
+            self.received_depth_image = True
+
         self.depth_map_width = msg.width
+        # Get a pointer to the depth values casting the data pointer to floating point
         self.depth_map = memoryview(msg.data).cast('f')
 
     def rgb_img_callback(self, msg):
         # convert the Image msg to cv2 image
+
+        if not self.received_rgb_image:
+            self.get_logger().info(f"first rgb image received")
+            self.received_rgb_image = True
+
 
         self.rgb_img_width = msg.width
         self.rgb_img_height = msg.height
@@ -163,7 +188,7 @@ class MyGetZedInfo(Node):
         self.rgb_img = self.bridge.imgmsg_to_cv2(img_msg=msg, desired_encoding='bgr8')
 
         # run the detection for the image
-        self.detect()
+        #self.detect()
 
     def yolo_to_norfair(self, yolo_detections):
         """
@@ -190,11 +215,14 @@ class MyGetZedInfo(Node):
 
         return nofair_detections
     
-    # gets called when rbg image is received. 
-    def detect(self):
+    def detect(self):    
         
+        # check if need info to run detection is received or not.
+        if self.received_camera_info == False or self.received_depth_image == False or self.received_rgb_image == False:
+            return
+
+
         try:
-            
             # store the current_detection_target in a variable to aviod changing it while running the detection
             current_detection_target = self.current_detection_target
 
@@ -222,10 +250,7 @@ class MyGetZedInfo(Node):
                 predictions = result[0]
                 norfair_detections = self.yolo_to_norfair(predictions)
                 tracked_objects = self.tracker.update(norfair_detections)
-                if tracked_objects != []:
-                    print(tracked_objects)
 
-           
 
         except IndexError as e:
             print(e)            
