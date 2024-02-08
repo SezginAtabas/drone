@@ -215,12 +215,80 @@ class MyGetZedInfo(Node):
 
         return nofair_detections
     
+
+    def pred_to_dist(self, img_shape, depth_map, depth_width, camera_info, predictions):
+        
+        f_x = camera_info[0]
+        f_y = camera_info[1]
+        c_x = camera_info[2]
+        c_y = camera_info[3]
+        
+        out = [] # list containing results [x, y, z, cls]
+        for prediction in predictions:
+            box = prediction[:4]
+            # center point of the bounding box
+            center_u = int((box[0] + box[2]) / 2) # x
+            center_v = int((box[1] + box[3]) / 2) # y
+
+            # get the pixels within a certain radius around the center and get their average depth
+            pixel_cords = self.find_pixels_near_center(width=img_shape[0], height=img_shape[1], 
+                                         center_coords=(center_u, center_v), radius=10)
+
+            total_depth = 0.0
+            for cords in pixel_cords:
+                #linear index of the pixel
+                lin_idx = cords[0] + depth_width * cords[1]
+                # add the depth of the pixel to the total
+                if depth_map[lin_idx] != 'nan':
+                    total_depth += depth_map[lin_idx]
+
+            # average depth of the pixels
+            z = total_depth / len(cords)
+            x = ((center_u - c_x) * z) / (f_x)
+            y = ((center_v - c_y) * z) / (f_y)
+            out.append([x, y, z, prediction[5]])
+
+        return out
+
+    def find_pixels_near_center(self, width, height, center_coords, radius):
+        # Calculate the top left and bottom right corners of the bounding box
+        top_left = (max(0, center_coords[0] - radius), max(0, center_coords[1] - radius))
+        bottom_right = (min(width, center_coords[0] + radius), min(height, center_coords[1] + radius))
+        
+        # Initialize an empty list to store the coordinates of the pixels within the bounding box
+        pixels_within_bounding_box = []
+        
+        # Iterate over the pixels within the bounding box
+        for y in range(top_left[1], bottom_right[1]):
+            for x in range(top_left[0], bottom_right[0]):
+                # Add the pixel's coordinates to the list
+                pixels_within_bounding_box.append((x, y))
+        
+        return pixels_within_bounding_box
+
+
+
     def detect(self):    
         
         # check if need info to run detection is received or not.
         if self.received_camera_info == False or self.received_depth_image == False or self.received_rgb_image == False:
             return
+        
 
+        """
+         # find the center point of the bbox
+                    u = int((box[0] + box[2]) / 2) # x
+                    v = int((box[1] + box[3]) / 2) # y
+
+                    # linear index of the center pixel of bbox
+                    center_idx = u + depth_width * v
+                    
+
+                    # real world distance from the target
+                    Z = input_depth_map[center_idx]
+                    X = ((u - c_x) * Z) / (f_x)
+                    Y = ((v - c_y) * Z) / (f_y)
+        """
 
         try:
             # store the current_detection_target in a variable to aviod changing it while running the detection
@@ -244,13 +312,17 @@ class MyGetZedInfo(Node):
                 img, results = self.landing_trt.infer(input_img=input_img)
             if current_detection_target == 'avocado':
                 img, results = self.avo_trt.infer(input_img=input_img)
-                    
+
+            distances = []
             # loop over detection results and update the tracker        
             for result in results:
                 predictions = result[0]
+                distances.append(self.pred_to_dist(img_shape=(im_width, im_height), depth_map=input_depth_map, depth_width=depth_width,
+                                                   camera_info=(f_x, f_y, c_x, c_y), predictions=predictions))
                 norfair_detections = self.yolo_to_norfair(predictions)
                 tracked_objects = self.tracker.update(norfair_detections)
-
+                # just for testing
+                print(distances[:3])
 
         except IndexError as e:
             print(e)            
