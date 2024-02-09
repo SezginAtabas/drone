@@ -76,7 +76,8 @@ class MyGetZedInfo(Node):
         # create the norfair tracker 
         try:
             # NOTE: These parameters are for testing and are not final.
-            self.tracker = Tracker(distance_function="euclidean", distance_threshold=1000.0, hit_counter_max = 300)
+            self.landing_tracker = Tracker(distance_function="euclidean", distance_threshold=1000.0, hit_counter_max = 300)
+            self.avo_tracker = Tracker(distance_function="euclidean", distance_threshold=1000.0, hit_counter_max = 300)
         except Exception as e:
             self.get_logger().error(f"Error Loading tracker! \n {e}")
             exit()
@@ -215,9 +216,20 @@ class MyGetZedInfo(Node):
 
         return nofair_detections
     
+    def pred_to_dist(self, img_shape, depth_map, depth_width, camera_info, radius, predictions):
+        """ Calculates the 3d positions of the input predictions.
 
-    def pred_to_dist(self, img_shape, depth_map, depth_width, camera_info, predictions):
-        
+        Args:
+            img_shape: shape of the image. tuple (width, height)
+            depth_map:  depth_map that will be used for 3d position calculations
+            depth_width:  width of the depth map
+            camera_info: information need for the calculation. (f_x, f_y, c_x, c_y)
+            radius: Radius around pixel that will be used for depth calculation.
+            predictions : list of predictions. [[x1, y1, x2, y2 , conf, cls], ... ]
+
+        Returns:
+            list containing results [x, y, z, conf, cls]
+        """
         f_x = camera_info[0]
         f_y = camera_info[1]
         c_x = camera_info[2]
@@ -232,41 +244,99 @@ class MyGetZedInfo(Node):
 
             # get the pixels within a certain radius around the center and get their average depth
             pixel_cords = self.find_pixels_near_center(width=img_shape[0], height=img_shape[1], 
-                                         center_coords=(center_u, center_v), radius=10)
+                                         center_coords=(center_u, center_v), radius=radius)
 
             total_depth = 0.0
             for cords in pixel_cords:
                 #linear index of the pixel
                 lin_idx = cords[0] + depth_width * cords[1]
                 # add the depth of the pixel to the total
-                if depth_map[lin_idx] != 'nan':
+                if not np.isnan(depth_map[lin_idx]):
                     total_depth += depth_map[lin_idx]
 
             # average depth of the pixels
-            z = total_depth / len(cords)
+            z = total_depth / len(pixel_cords)
             x = ((center_u - c_x) * z) / (f_x)
             y = ((center_v - c_y) * z) / (f_y)
-            out.append([x, y, z, prediction[5]])
+            out.append([x, y, z, prediction[4], prediction[5]])
 
         return out
+    # is this function correct?
+    def find_pixels_near_center(width, height, center_coords, radius):
+        """Finds all pixels within a radius of the center coordinates.
 
-    def find_pixels_near_center(self, width, height, center_coords, radius):
-        # Calculate the top left and bottom right corners of the bounding box
+        Args:
+            width: The width of the image.
+            height: The height of the image.
+            center_coords: A tuple (x, y) representing the center coordinates.
+            radius: The radius of the circle.
+
+        Returns:
+            A list of tuples (x, y) representing the coordinates of the pixels within
+            the radius of the center coordinates.
+        """
+
+        # Calculate the top left and bottom right corners of the bounding box,
+        # ensuring they stay within the image boundaries.
         top_left = (max(0, center_coords[0] - radius), max(0, center_coords[1] - radius))
-        bottom_right = (min(width, center_coords[0] + radius), min(height, center_coords[1] + radius))
-        
+        bottom_right = (min(width - 1, center_coords[0] + radius), min(height - 1, center_coords[1] + radius))
+
         # Initialize an empty list to store the coordinates of the pixels within the bounding box
         pixels_within_bounding_box = []
-        
-        # Iterate over the pixels within the bounding box
-        for y in range(top_left[1], bottom_right[1]):
-            for x in range(top_left[0], bottom_right[0]):
-                # Add the pixel's coordinates to the list
-                pixels_within_bounding_box.append((x, y))
-        
+
+        # Iterate over the pixels within the bounding box, checking if they are within the radius of the center
+        for y in range(top_left[1], bottom_right[1] + 1):
+            for x in range(top_left[0], bottom_right[0] + 1):
+                # Calculate the distance from the pixel to the center
+                distance = ((x - center_coords[0])**2 + (y - center_coords[1])**2)**0.5
+                # Add the pixel's coordinates to the list if it is within the radius and within the image bounds
+                if distance <= radius and 0 <= x < width and 0 <= y < height:
+                    pixels_within_bounding_box.append((x, y))
+
         return pixels_within_bounding_box
 
+    def to_3d_point(self, img_shape, depth_map, depth_width, camera_info, radius, points):
+        """ Calculates the 3d positions of the input predictions.
 
+        Args:
+            img_shape: shape of the image. tuple (width, height)
+            depth_map:  depth_map that will be used for 3d position calculations
+            depth_width:  width of the depth map
+            camera_info: information need for the calculation. (f_x, f_y, c_x, c_y)
+            radius: Radius around pixel that will be used for depth calculation.
+            points: pixel coordinates (x, y)
+
+        Returns:
+            3d coordinates [x, y, z]
+        """
+         
+        f_x = camera_info[0]
+        f_y = camera_info[1]
+        c_x = camera_info[2]
+        c_y = camera_info[3]    
+        
+        
+        u, v  = points[0], points[1]
+        
+        pixel_cords = self.find_pixels_near_center(width=img_shape[0], height=img_shape[1], 
+                                         center_coords=(u, v), radius=radius)
+        
+        total_depth = 0.0
+        for cords in pixel_cords:
+            #linear index of the pixel
+            lin_idx = cords[0] + depth_width * cords[1]
+            # add the depth of the pixel to the total
+            if not np.isnan(depth_map[lin_idx]):
+                total_depth += depth_map[lin_idx]
+        
+        z = total_depth / len(pixel_cords)
+        x = ((u - c_x) * z) / (f_x)
+        y = ((v - c_y) * z) / (f_y)        
+        
+        return [x, y, z]
+
+        
+        
 
     def detect(self):    
         
@@ -274,21 +344,6 @@ class MyGetZedInfo(Node):
         if self.received_camera_info == False or self.received_depth_image == False or self.received_rgb_image == False:
             return
         
-
-        """
-         # find the center point of the bbox
-                    u = int((box[0] + box[2]) / 2) # x
-                    v = int((box[1] + box[3]) / 2) # y
-
-                    # linear index of the center pixel of bbox
-                    center_idx = u + depth_width * v
-                    
-
-                    # real world distance from the target
-                    Z = input_depth_map[center_idx]
-                    X = ((u - c_x) * Z) / (f_x)
-                    Y = ((v - c_y) * Z) / (f_y)
-        """
 
         try:
             # store the current_detection_target in a variable to aviod changing it while running the detection
@@ -310,21 +365,28 @@ class MyGetZedInfo(Node):
             # run inference based on current target 
             if current_detection_target == 'landing_pad':
                 img, results = self.landing_trt.infer(input_img=input_img)
+                # loop over detection results and update the tracker        
+                for result in results:
+                    predictions = result[0]
+                    norfair_detections = self.yolo_to_norfair(predictions)
+                    tracked_objects = self.landing_tracker.update(norfair_detections)
+                    for obj in tracked_objects:
+                        # flatten the list and convert the values to int
+                        cord_2d = obj.get_estimate().flatten().astype(int)
+                        cord_3d = self.to_3d_point(img_shape=(im_width, im_height), depth_map=input_depth_map, depth_width=depth_width,
+                                                    camera_info=(f_x, f_y, c_x, c_y), radius=10, points=cord_2d)
+                        print(cord_3d)
+
             if current_detection_target == 'avocado':
                 img, results = self.avo_trt.infer(input_img=input_img)
+                # WORK IN PROGRESS #
 
-            distances = []
-            # loop over detection results and update the tracker        
-            for result in results:
-                predictions = result[0]
-                distances.append(self.pred_to_dist(img_shape=(im_width, im_height), depth_map=input_depth_map, depth_width=depth_width,
-                                                   camera_info=(f_x, f_y, c_x, c_y), predictions=predictions))
-                norfair_detections = self.yolo_to_norfair(predictions)
-                tracked_objects = self.tracker.update(norfair_detections)
-                # just for testing
-                print(distances[:3])
 
-        except IndexError as e:
+
+        except Exception as e:
+            # cleanup
+            self.landing_trt.destroy()
+            self.avo_trt.destroy()
             print(e)            
 
         
