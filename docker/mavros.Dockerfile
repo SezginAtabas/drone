@@ -3,36 +3,33 @@ FROM ros:humble
 
 ENV ROS_DISTRO=humble
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends\
     python3-pip \ 
     ros-${ROS_DISTRO}-mavros \
     ros-${ROS_DISTRO}-mavros-extras \
     && rm -rf /var/lib/apt/lists/*
 
-
-
-
-
 # geo datasets needed for mavros
-ADD install_geographiclib_datasets.sh /bash_scripts/
+COPY install_geographiclib_datasets.sh /bash_scripts/
 RUN chmod +x /bash_scripts/install_geographiclib_datasets.sh
 RUN /bash_scripts/install_geographiclib_datasets.sh
 
 # install needed stuff with pip
-RUN pip install numpy transforms3d setuptools==58.2.0
+RUN pip install numpy==1.24.4 transforms3d==0.4.1 setuptools==58.2.0
 
 # copy the need pkgs 
 COPY drone_control_pkg /ros2_ws/src/drone_control_pkg
 
 # build
-RUN . /opt/ros/${ROS_DISTRO}/setup.sh && \
+WORKDIR /opt/ros/${ROS_DISTRO}
+RUN . /setup.sh && \
     cd /ros2_ws && \ 
     colcon build
 
 # Source the workspace
 RUN echo 'source /ros2_ws/install/setup.bash' >> ~/.bashrc
 
-ADD ros_entrypoint.sh /bash_scripts/
+COPY ros_entrypoint.sh /bash_scripts/
 RUN chmod +x /bash_scripts/ros_entrypoint.sh
 ENTRYPOINT [ "/bash_scripts/ros_entrypoint.sh" ]
 

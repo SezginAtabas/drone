@@ -13,8 +13,6 @@ from mavros_msgs.srv import SetMode, CommandBool, CommandTOL, CommandLong
 
 import transforms3d as tf3d
 import math
-import numpy as np
-
 # STATE_QOS used for state topics, like ~/state, ~/mission/waypoints etc.
 STATE_QOS = rclpy.qos.QoSProfile(
     depth=10, durability=rclpy.qos.QoSDurabilityPolicy.TRANSIENT_LOCAL
@@ -40,16 +38,15 @@ class DroneControllerNode(Node):
     this is a node to control the drone.
     Drones Mission:
     1. Takeoff and climb to specified altitude. during this time the drone will save the landing pads position using the zed camera.
-    2. search the area for an avocado until timeout. this is done by moving the drone in the area and rotating the drone. NOTE: Currently drone just moves to a few random positions.
+    2. search the area for an avocado until timeout. this is done by moving the drone in the area and rotating the drone. 
+    NOTE: Currently drone just moves to a few random positions.
     3. if an avocado is found drone will lock on to its position and move towards it. NOTE: later there will be a mechanism to take the avocado.
     4. if an avocado is not found drone will go the landing pads position save during takeoff and land using vision landing.
     """
 
-
     def __init__(self):
         super().__init__('drone_controller_node')
-
-        
+ 
         self.last_state = None # last status message
         self.local_pos = None # last known local position message
         self.last_target_msg = PoseStamped()  # last sent target position message
@@ -60,10 +57,7 @@ class DroneControllerNode(Node):
         self.avocado_target_position = None # last known avocado target position message
         self.avocado_target_drone_position = None # drones position when the last avocado target position message was received
         
-        
         self.current_detection_target = 'landing_pad' # used to tell the trt_node to which object to search for. can be 'landing_pad' or 'avocado' default is landing pad
-        
-        
         
         # create service clients
         # for long command (datastream requests)...
@@ -86,14 +80,11 @@ class DroneControllerNode(Node):
         while not self.takeoff_cli.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('takeoff service not available, waiting again...')
 
-
-        
         #publisher for setpoint
         self.target_pub = self.create_publisher(PoseStamped, '/mavros/setpoint_position/local', 10)
         # publisher for the current detection target variable
         self.current_detection_target_pub = self.create_publisher(String, '/my_drone/current_detection_target', 10) 
-       
-
+    
         # sub for vehicle state
         self.state_sub = self.create_subscription(State, '/mavros/state', self.state_callback, STATE_QOS)
         # sub for local position
@@ -111,15 +102,16 @@ class DroneControllerNode(Node):
         # save the drones position when the last avocado target position message was received
         self.avocado_target_drone_position = self.local_pos
         self.get_logger().debug('Avocado target position: {}'.format(msg.point))
-    # save the last landing target position message
+    
     def landing_target_callback(self, msg):
         # save the last landing target position message
         self.landing_target_position = msg
         # save the drones position when the last landing target position message was received
         self.landing_target_drone_position = self.local_pos
         self.get_logger().debug('Landing target position: {}'.format(msg.point))          
-    # request data streams from the vehicle. msg_id is the MAVLink message ID, msg_interval is the interval in microseconds
+   
     def request_data_stream(self, msg_id, msg_interval):
+        # request data streams from the vehicle. msg_id is the MAVLink message ID, msg_interval is the interval in microseconds
         cmd_req = CommandLong.Request()
         cmd_req.command = 511
         cmd_req.param1 = float(msg_id)
@@ -135,13 +127,13 @@ class DroneControllerNode(Node):
             if self.last_state:
                 # if had a message before, wait for higher timestamp
                 last_stamp = self.last_state.header.stamp.sec
-                for try_wait in range(60):
+                for _ in range(60):
                     rclpy.spin_once(self)
                     if self.last_state.header.stamp.sec > last_stamp:
                         break
             else:
                 # if never had a message, just wait for first one          
-                for try_wait in range(60):
+                for _ in range(60):
                     if self.last_state:
                         break
                     rclpy.spin_once(self)
@@ -167,12 +159,14 @@ class DroneControllerNode(Node):
     # save the last status message.nanoseconds / 1e9
     def state_callback(self, msg):
         self.last_state = msg
+        
         self.get_logger().debug('Mode: {}. Armed: {}'.format(msg.mode, msg.armed))
         
 
     # save the last local position message gets the rotation as well
     def local_position_callback(self, msg):
-        self.local_pos = msg
+        self.local_pos = msg 
+        
         self.get_logger().debug('Local position: {}'.format(msg.pose.position))     
         
     # send a setpoint message to move the vehicle to a local position
@@ -203,6 +197,7 @@ class DroneControllerNode(Node):
         Wait until the last setpoint message is reached.
         Only use target_x, target_y, target_z if check_last_target_pose is false. used for the takeoff and other stuff that does not use the last target pose.
         """
+        
         # for timout seconds, in a loop wait for a new local position message 
         # then check if the position of the drone is within the error tolerance of the target position
         # if so, return.  Otherwise, keep waiting.
@@ -221,19 +216,18 @@ class DroneControllerNode(Node):
             # wait for a new local position message
             if self.local_pos: # if there was a message before, wait for a higher timestamp
                 last_stamp = self.local_pos.header.stamp.sec
-                for wait in range(5): # wait for 5 seconds
+                for _ in range(5): # wait for 5 seconds
                     rclpy.spin_once(self)
                     if self.local_pos.header.stamp.sec > last_stamp:
                         break
+                    
             else: # if there was no message before, just wait for the first one
-                for wait in range(5):
+                for _ in range(5):
                     if self.local_pos:
                         break
                     rclpy.spin_once(self)
-
+        
             # check if the position of the drone is within the error tolerance of the target position
-                    
-                # difference between target and current position
             dx = abs(target_x - self.local_pos.pose.position.x)
             dy = abs(target_y - self.local_pos.pose.position.y)
             dz = abs(target_z - self.local_pos.pose.position.z)
@@ -244,9 +238,10 @@ class DroneControllerNode(Node):
             if dist <= error_tolerance:
                 self.get_logger().info('Target position reached. x:{} y:{} z:{} dist:{}'.format(target_x, target_y, target_z, dist))
                 return True # target position reached
+            
             else:
                 # print time left until timeout. only print every second      
-                if (self.get_clock().now() - last_print_time).nanoseconds / 1e9 > 1:
+                if (self.get_clock().now() - last_print_time).nanoseconds / 1e9 > 1:               
                     self.get_logger().debug('Waiting for target position. x:{} y:{} z:{} dist:{} timeout:{}'.format(target_x, target_y, target_z, dist, timeout - (self.get_clock().now() - start_time).nanoseconds / 1e9))
                     last_print_time = self.get_clock().now()
 
@@ -261,6 +256,7 @@ class DroneControllerNode(Node):
         """
         Rotate the drone to the given radians. 
         """
+        
         # set the header
         self.last_target_msg.header.stamp = self.get_clock().now().to_msg()
         # position of the drone will be the same
@@ -282,6 +278,7 @@ class DroneControllerNode(Node):
         """
         Wait for the given number of seconds. 
         """
+        
         self.get_logger().info('Waiting for {} seconds'.format(seconds))
         start_time = self.get_clock().now()
         while (self.get_clock().now() - start_time).nanoseconds / 1e9 < seconds:
@@ -293,8 +290,10 @@ class DroneControllerNode(Node):
         """
         rotate the drone 360 degrees. 
         """
+        
         # convert to radians
         step_size_radians = math.radians(step_size) 
+        
         # get the current yaw in radians
         current_yaw_radians = tf3d.euler.quat2euler((self.local_pos.pose.orientation.w, self.local_pos.pose.orientation.x, 
                                                      self.local_pos.pose.orientation.y, self.local_pos.pose.orientation.z))[2] 
@@ -336,7 +335,7 @@ class DroneControllerNode(Node):
 
 
         # wait until system status becomes standby
-        for try_standy in range(60):
+        for _ in range(60):
             self.wait_for_new_status()
             if self.last_state.system_status == 3:
                 self.get_logger().info('System status: Standby')
@@ -353,7 +352,7 @@ class DroneControllerNode(Node):
         self.get_logger().info('Requested GUIDED mode')
 
         # try to arm the drone.
-        for try_arm in range(60):
+        for _ in range(60):
             self.arm_request()
             self.get_logger().info('Arming request sent.')
             self.wait_for_new_status()
@@ -380,12 +379,6 @@ class DroneControllerNode(Node):
 
         self.do_360(15, 2)
         
-
-        
-
-
-
-
         # if landing pad was never found land using RTL mode
         if self.landing_target_position is None or self.landing_target_drone_position is None:
             self.get_logger().warning('No landing target position received. Landing using RTL mode')
@@ -398,9 +391,11 @@ class DroneControllerNode(Node):
 
             # first move to the landing target position. if it was found a while ago the drone might have moved away from it.
             self.move_local(self.landing_target_drone_position.pose.position.x + self.landing_target_position.point.x, self.landing_target_drone_position.pose.position.y + self.landing_target_position.point.y, takeoff_altitude)
+            
             # wait for drone to reach desired position
             if self.wait_until_pos_reached(error_tolerance=0.1): # use lower error tolerance
                 self.get_logger().info('Ready to land at target position. current position: {}'.format(self.local_pos.pose.position))
+                
             else:
                 self.get_logger().error('Failed to reach target position during vision landing')    
 
@@ -408,11 +403,7 @@ class DroneControllerNode(Node):
             while rclpy.ok():
                 rclpy.spin_once(self) # spin to update variables
 
-                """
-                first align with the landing target. then move down slowly by the descend rate. and correct the x and y alignment continuously.
-                """
-
-                # landing target position when the last landing target position message was received.
+                # first align with the landing target. then move down slowly by the descend rate. and correct the x and y alignment continuously.
                 target_x = self.landing_target_drone_position.pose.position.x + self.landing_target_position.point.x
                 target_y = self.landing_target_drone_position.pose.position.y + self.landing_target_position.point.y
                 target_z = self.landing_target_drone_position.pose.position.z + self.landing_target_position.point.z
@@ -424,7 +415,6 @@ class DroneControllerNode(Node):
                     self.get_logger().info('Requested LAND mode')
                     break
                 
-
                 # move to landing target position. align with the landing target first. then move down. descend rate is used to move down slowly.
                 self.move_local(target_x, target_y, self.local_pos.pose.position.z - descend_rate)
                 # wait for drone to reach desired position

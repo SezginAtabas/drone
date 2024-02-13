@@ -262,7 +262,7 @@ class MyGetZedInfo(Node):
 
         return out
     # is this function correct?
-    def find_pixels_near_center(width, height, center_coords, radius):
+    def find_pixels_near_center(self, width, height, center_coords, radius):
         """Finds all pixels within a radius of the center coordinates.
 
         Args:
@@ -318,8 +318,8 @@ class MyGetZedInfo(Node):
         
         u, v  = points[0], points[1]
         
-        pixel_cords = self.find_pixels_near_center(width=img_shape[0], height=img_shape[1], 
-                                         center_coords=(u, v), radius=radius)
+        pixel_cords = self.find_pixels_near_center(img_shape[0], img_shape[1], (u, v), radius)
+                                         
         
         total_depth = 0.0
         for cords in pixel_cords:
