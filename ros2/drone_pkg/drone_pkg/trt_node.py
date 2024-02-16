@@ -4,7 +4,7 @@ from rclpy.node import Node
 
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import CameraInfo
-from geometry_msgs.msg import PointStamped
+from geometry_msgs.msg import PointStamped, PoseStamped
 from std_msgs.msg import String
 
 import cv2
@@ -18,56 +18,80 @@ import pycuda.driver as cuda
 import pycuda.autoinit
 
 
+# import norfair tracker
+from norfair import Detection, Tracker
+from norfair.tracker import TrackedObject
+
+
 # ros2 launch zed_display_rviz2 display_zed_cam.launch.py camera_model:=<camera model>
-# ros2 launch zed_wrapper zed_camera.launch.py camera_model:=
-
-
 
 # SENSOR_QOS used for most of sensor streams
 SENSOR_QOS = rclpy.qos.qos_profile_sensor_data
 
-
-
-#gets the data needed for the TensorRT model to run from the ZED camera
 class MyGetZedInfo(Node):
     def __init__(self):
         super().__init__('my_get_zed_info')
 
-        self.depth_map = []
+        INPUT_SIZE = (384, 640)
+        OUTPUT_SHAPE = [1, 5, 5040]
+
+        # tensorrt engine file paths
+        engine_file = '/home/xtrana/ros2_ws/src/drone_pkg/trt_engines/pc/pc_landing_134.engine' # landing_pad
+        avo_engine_file = '/home/xtrana/ros2_ws/src/drone_pkg/trt_engines/pc/pc_avo_n_42.engine' # avocado
+
+        # rgb img variables
         self.rgb_img = []
+        self.rgb_img_width = 0
+        self.rgb_img_height = 0
+        # vas for depth image
+        self.depth_map = []
+        self.depth_map_width = 0
+        
+        # zed camera info. For image correction.
+        self.f_x = 0
+        self.f_y = 0
+        self.c_x = 0
+        self.c_y = 0
+        
+        # last published position for landing and avo. can be used to help the drone find the targets if drone loses them.
+        # TODO: Instead of just saving last know position. Save all detections and drones position at the time of the detection
         self.last_published_lading_pos = PointStamped()
         self.last_published_avo_pos = PointStamped()
         self.current_detection_target = "landing_pad" # which target to detect. can be avocado or landing_pad
 
         self.target_landing_pos = {'x' : 0, 'y': 0, 'z': 0 }
         self.last_avo_pos = {'x' : 0, 'y': 0, 'z': 0 }
-        
+
+        # variables to check if all need messages are received for the detection to start
+        self.received_depth_image = False
+        self.received_rgb_image = False
+        self.received_camera_info = False
+
+        self.drone_local_position = PoseStamped()
+
+
+        # bridge for converting ros img messages to opencv images.
         self.bridge = CvBridge()
-        
-        # tensorrt landing pad engine in docker container
-        engine_file = '/root/ros2_ws/src/drone_pkg/trt_engines/landing_134.engine'
 
-        # engine file for the avocado in docker container
-        avo_engine_file = '/root/ros2_ws/src/drone_pkg/trt_engines/avo_n_42.engine'
 
-        INPUT_SIZE = (384, 640)
-        OUTPUT_SHAPE = [1, 5, 5040]
-
-        # create the tensorrt class instance
-        self.landing_trt = yolov8_trt(engine_file_path=engine_file, input_size=INPUT_SIZE, output_shape=OUTPUT_SHAPE)
-        # create another instance for the avocado
-        self.avo_trt = yolov8_trt(engine_file_path=avo_engine_file, input_size=INPUT_SIZE, output_shape=OUTPUT_SHAPE)
-
-        self.rgb_img_width = 0
-        self.rgb_img_height = 0
-        self.depth_map_width = 0
-        
-        self.f_x = 0
-        self.f_y = 0
-        self.c_x = 0
-        self.c_y = 0
+        # create the norfair tracker 
+        try:
+            # NOTE: These parameters are for testing and are not final.
+            self.landing_tracker = Tracker(distance_function="euclidean", distance_threshold=1000.0, hit_counter_max = 300)
+            self.avo_tracker = Tracker(distance_function="euclidean", distance_threshold=1000.0, hit_counter_max = 300)
+        except Exception as e:
+            self.get_logger().error(f"Error Loading tracker! \n {e}")
+            exit()
 
         
+        try:
+            # create the tensorrt class instance
+            self.landing_trt = yolov8_trt(engine_file_path=engine_file, input_size=INPUT_SIZE, output_shape=OUTPUT_SHAPE)
+            # create another instance for the avocado
+            self.avo_trt = yolov8_trt(engine_file_path=avo_engine_file, input_size=INPUT_SIZE, output_shape=OUTPUT_SHAPE)
+        except:
+            self.get_logger().error("Couldnt create tensorrt engines. Please Check File paths. Exiting ...")    
+            exit()
 
         
         #QoS profile for depth topic
@@ -80,6 +104,7 @@ class MyGetZedInfo(Node):
         rgb_img_qos.reliability = rclpy.qos.QoSReliabilityPolicy.BEST_EFFORT
         rgb_img_qos.durability = rclpy.qos.QoSDurabilityPolicy.VOLATILE
 
+        # QoS profile for zed camera info
         camera_info_qos = rclpy.qos.QoSProfile(depth=10)
         camera_info_qos.reliability = rclpy.qos.QoSReliabilityPolicy.BEST_EFFORT
         camera_info_qos.durability = rclpy.qos.QoSDurabilityPolicy.VOLATILE
@@ -92,8 +117,7 @@ class MyGetZedInfo(Node):
             '/my_drone/current_detection_target',
             self.current_detection_target_callback,
             10
-        )
-  
+        ) 
         #create the depth map subscriber
         self.depth_sub = self.create_subscription(
             Image,
@@ -115,33 +139,56 @@ class MyGetZedInfo(Node):
             self.camera_info_callback,
             camera_info_qos
         )
-
+        self.pos_sub = self.create_subscription(
+            PoseStamped,
+            '/mavros/local_position/pose', 
+            self.local_position_callback, 
+            SENSOR_QOS
+        )
 
         # create a publisher for the target landing position
         self.target_landing_pos_pub = self.create_publisher(PointStamped, '/my_drone/landing_target_position', qos_profile=SENSOR_QOS)
         # publisher for avocado position
         self.avocado_pos_pub = self.create_publisher(PointStamped, '/my_drone/avocado_target_position', qos_profile=SENSOR_QOS)
 
+        # call detection at 30
+        self.detect_timer =  self.create_timer(timer_period_sec= 1/30, callback=self.detect)
 
-
+    def local_position_callback(self, msg):
+        self.drone_local_position = msg
+        
     def current_detection_target_callback(self, msg):
         self.current_detection_target = msg.data
         self.get_logger().info(f"current detection target: {self.current_detection_target}")
     
     def camera_info_callback(self, msg):
+        
+        if not self.received_camera_info:
+            self.get_logger().info('received camera information.')
+            self.received_camera_info = True
+
         self.f_x = msg.k[0]
         self.f_y = msg.k[4]
         self.c_x = msg.k[2]
         self.c_y = msg.k[5]
 
     def depth_callback(self, msg):
-        # Get a pointer to the depth values casting the data pointer to floating point
-        self.depth_map_width = msg.width
-        self.depth_map = memoryview(msg.data).cast('f')
+        # check if this depth message the first one.
+        if not self.received_depth_image:
+            self.get_logger().info(f"First Depth Image Received")
+            self.received_depth_image = True
 
+        self.depth_map_width = msg.width
+        # Get a pointer to the depth values casting the data pointer to floating point
+        self.depth_map = memoryview(msg.data).cast('f')
 
     def rgb_img_callback(self, msg):
         # convert the Image msg to cv2 image
+
+        if not self.received_rgb_image:
+            self.get_logger().info(f"first rgb image received")
+            self.received_rgb_image = True
+
 
         self.rgb_img_width = msg.width
         self.rgb_img_height = msg.height
@@ -149,106 +196,203 @@ class MyGetZedInfo(Node):
         self.rgb_img = self.bridge.imgmsg_to_cv2(img_msg=msg, desired_encoding='bgr8')
 
         # run the detection for the image
-        self.detect()
+        #self.detect()
 
+    def yolo_to_norfair(self, yolo_detections):
+        """
+        converts yolo detections to nofair Detection to be fed into norfair tracking.
+        """
 
-    # gets called when rbg image is received. currently only runs detection for the landing target.
-    def detect(self):
+        nofair_detections : list[Detection] = []
+        for yolo_d in yolo_detections:
+            bbox = np.array(
+                [
+                    [yolo_d[0].item(), yolo_d[1].item()],
+                    [yolo_d[2].item(), yolo_d[3].item()],
+                ]
+            )
+            scores = np.array(
+                [yolo_d[4].item(), yolo_d[4].item()]
+            )
+
+            nofair_detections.append(
+                Detection(
+                    points=bbox, scores=scores, label=int(yolo_d[-1].item())
+                )
+            )
+
+        return nofair_detections
+    
+    def pred_to_dist(self, img_shape, depth_map, depth_width, camera_info, radius, predictions):
+        """ Calculates the 3d positions of the input predictions.
+
+        Args:
+            img_shape: shape of the image. tuple (width, height)
+            depth_map:  depth_map that will be used for 3d position calculations
+            depth_width:  width of the depth map
+            camera_info: information need for the calculation. (f_x, f_y, c_x, c_y)
+            radius: Radius around pixel that will be used for depth calculation.
+            predictions : list of predictions. [[x1, y1, x2, y2 , conf, cls], ... ]
+
+        Returns:
+            list containing results [x, y, z, conf, cls]
+        """
+        f_x = camera_info[0]
+        f_y = camera_info[1]
+        c_x = camera_info[2]
+        c_y = camera_info[3]
+        
+        out = [] # list containing results [x, y, z, cls]
+        for prediction in predictions:
+            box = prediction[:4]
+            # center point of the bounding box
+            center_u = int((box[0] + box[2]) / 2) # x
+            center_v = int((box[1] + box[3]) / 2) # y
+
+            # get the pixels within a certain radius around the center and get their average depth
+            pixel_cords = self.find_pixels_near_center(width=img_shape[0], height=img_shape[1], 
+                                         center_coords=(center_u, center_v), radius=radius)
+
+            total_depth = 0.0
+            for cords in pixel_cords:
+                #linear index of the pixel
+                lin_idx = cords[0] + depth_width * cords[1]
+                # add the depth of the pixel to the total
+                if not np.isnan(depth_map[lin_idx]):
+                    total_depth += depth_map[lin_idx]
+
+            # average depth of the pixels
+            z = total_depth / len(pixel_cords)
+            x = ((center_u - c_x) * z) / (f_x)
+            y = ((center_v - c_y) * z) / (f_y)
+            out.append([x, y, z, prediction[4], prediction[5]])
+
+        return out
+    # is this function correct?
+    def find_pixels_near_center(self, width, height, center_coords, radius):
+        """Finds all pixels within a radius of the center coordinates.
+
+        Args:
+            width: The width of the image.
+            height: The height of the image.
+            center_coords: A tuple (x, y) representing the center coordinates.
+            radius: The radius of the circle.
+
+        Returns:
+            A list of tuples (x, y) representing the coordinates of the pixels within
+            the radius of the center coordinates.
+        """
+
+        # Calculate the top left and bottom right corners of the bounding box,
+        # ensuring they stay within the image boundaries.
+        top_left = (max(0, center_coords[0] - radius), max(0, center_coords[1] - radius))
+        bottom_right = (min(width - 1, center_coords[0] + radius), min(height - 1, center_coords[1] + radius))
+
+        # Initialize an empty list to store the coordinates of the pixels within the bounding box
+        pixels_within_bounding_box = []
+
+        # Iterate over the pixels within the bounding box, checking if they are within the radius of the center
+        for y in range(top_left[1], bottom_right[1] + 1):
+            for x in range(top_left[0], bottom_right[0] + 1):
+                # Calculate the distance from the pixel to the center
+                distance = ((x - center_coords[0])**2 + (y - center_coords[1])**2)**0.5
+                # Add the pixel's coordinates to the list if it is within the radius and within the image bounds
+                if distance <= radius and 0 <= x < width and 0 <= y < height:
+                    pixels_within_bounding_box.append((x, y))
+
+        return pixels_within_bounding_box
+
+    def to_3d_point(self, img_shape, depth_map, depth_width, camera_info, radius, points):
+        """ Calculates the 3d positions of the input predictions.
+
+        Args:
+            img_shape: shape of the image. tuple (width, height)
+            depth_map:  depth_map that will be used for 3d position calculations
+            depth_width:  width of the depth map
+            camera_info: information need for the calculation. (f_x, f_y, c_x, c_y)
+            radius: Radius around pixel that will be used for depth calculation.
+            points: pixel coordinates (x, y)
+
+        Returns:
+            3d coordinates [x, y, z]
+        """
+         
+        f_x = camera_info[0]
+        f_y = camera_info[1]
+        c_x = camera_info[2]
+        c_y = camera_info[3]    
+        
+        
+        u, v  = points[0], points[1]
+        
+        pixel_cords = self.find_pixels_near_center(img_shape[0], img_shape[1], (u, v), radius)
+                                         
+        
+        total_depth = 0.0
+        for cords in pixel_cords:
+            #linear index of the pixel
+            lin_idx = cords[0] + depth_width * cords[1]
+            # add the depth of the pixel to the total
+            if not np.isnan(depth_map[lin_idx]):
+                total_depth += depth_map[lin_idx]
+        
+        z = total_depth / len(pixel_cords)
+        x = ((u - c_x) * z) / (f_x)
+        y = ((v - c_y) * z) / (f_y)        
+        
+        return [x, y, z]
+                                
             
+    def detect(self):    
+        # check if need info to run detection is received or not.
+        if self.received_camera_info == False or self.received_depth_image == False or self.received_rgb_image == False:
+            return
+        
+
+        try:
+            # store the current_detection_target in a variable to aviod changing it while running the detection
+            current_detection_target = self.current_detection_target
+
             input_img  = self.rgb_img
             input_depth_map = self.depth_map
-
 
             im_width =  self.rgb_img_width
             im_height = self.rgb_img_height
             depth_width = self.depth_map_width
 
+            # zed camera info
             f_x = self.f_x
             f_y = self.f_y
             c_x = self.c_x
             c_y = self.c_y
             
+            # run inference based on current target 
+            if current_detection_target == 'landing_pad':
+                img, results = self.landing_trt.infer(input_img=input_img)
+                # loop over detection results and update the tracker        
+                for result in results:
+                    predictions = result[0]
+                    norfair_detections = self.yolo_to_norfair(predictions)
+                    tracked_objects = self.landing_tracker.update(norfair_detections)
+                    for obj in tracked_objects:
+                        # flatten the list and convert the values to int
+                        cord_2d = obj.get_estimate().flatten().astype(int)
+                        cord_3d = self.to_3d_point(img_shape=(im_width, im_height), depth_map=input_depth_map, depth_width=depth_width,
+                                                    camera_info=(f_x, f_y, c_x, c_y), radius=10, points=cord_2d)
+                        print(cord_3d)
 
-            # store the current_detection_target in a variable to aviod changing it while running the detection
-            current_detection_target = self.current_detection_target
+            if current_detection_target == 'avocado':
+                img, results = self.avo_trt.infer(input_img=input_img)
+                # WORK IN PROGRESS #
 
-
-            
-
-            # detection for the landing pad
-            if current_detection_target == "landing_pad":
-                self.get_logger().info("running trt detection for landing pad ... ")
-                # inference
-                raw_img, box, conf, target_found = self.landing_trt.infer(input_img=input_img) 
-
-                if target_found: 
-                    # find the center point of the bbox
-                    u = int((box[0] + box[2]) / 2) # x
-                    v = int((box[1] + box[3]) / 2) # y
-
-                    # linear index of the center pixel of bbox
-                    center_idx = u + depth_width * v
-                    
-
-                    # real world distance from the target
-                    Z = input_depth_map[center_idx]
-                    X = ((u - c_x) * Z) / (f_x)
-                    Y = ((v - c_y) * Z) / (f_y)
-
-                    self.target_landing_pos['x'] = X
-                    self.target_landing_pos['y'] = Y
-                    self.target_landing_pos['z'] = Z
-
-                    # publish the target landing position
-                    self.last_published_lading_pos.header.stamp = self.get_clock().now().to_msg()
-                    self.last_published_lading_pos.header.frame_id = "d_landing_pos"
-                    self.last_published_lading_pos.point.x = X
-                    self.last_published_lading_pos.point.y = Y
-                    self.last_published_lading_pos.point.z = Z
-                    
-                    # publish the target landing position
-                    self.target_landing_pos_pub.publish(self.last_published_lading_pos)
-
-                    self.get_logger().info(f"x:{X:.2f} y:{Y:.2f} z:{Z:.2f}")
-
-                
-
-            # detection for the avocado
-            elif self.current_detection_target == "avocado":
-                self.get_logger().info("running trt detection for avocado ... ")
-                # inference
-                raw_img, box, conf, target_found = self.avo_trt.infer(input_img=input_img)
-
-                if target_found:
-                    # find the center point of the bbox
-                    u = int((box[0] + box[2]) / 2)
-                    v = int((box[1] + box[3]) / 2)
-
-                    # linear index of the center pixel of bbox
-                    center_idx = u + depth_width * v
-
-                    # real world distance from the target
-                    Z = input_depth_map[center_idx]
-                    X = ((u - c_x) * Z) / (f_x)
-                    Y = ((v - c_y) * Z) / (f_y)
-
-                    self.last_avo_pos['x'] = X
-                    self.last_avo_pos['y'] = Y
-                    self.last_avo_pos['z'] = Z
-
-                    # publish the avocado position
-                    self.last_published_avo_pos.header.stamp = self.get_clock().now().to_msg()
-                    self.last_published_avo_pos.header.frame_id = "d_avo_pos"
-                    self.last_published_avo_pos.point.x = X
-                    self.last_published_avo_pos.point.y = Y
-                    self.last_published_avo_pos.point.z = Z
-
-                    # publish the avocado position
-                    self.avocado_pos_pub.publish(self.last_published_avo_pos)
-
-                    self.get_logger().info(f"x:{X:.2f} y:{Y:.2f} z:{Z:.2f}")
-
+        except Exception as e:
+            # cleanup
+            self.landing_trt.destroy()
+            self.avo_trt.destroy()
+            print(e)            
         
+    
+
 
 
 class yolov8_trt(object):
@@ -306,6 +450,21 @@ class yolov8_trt(object):
 
     
     def infer(self, input_img):
+        """
+        Runs inference.
+        Input: Image to run Inference on
+        Output: Image that was used , detection results.
+                bounding boxes are in xyxy format.
+        ---------------
+        To loop over detections
+         for result in results:
+                predictions = result[0]
+                for prediction in predictions:
+                    bbox = prediction[:4]
+                    conf = prediction[4]
+                    cls = prediction[5]
+        ---------------            
+        """
 
         # push the context to the gpu
         self.ctx.push()
@@ -322,10 +481,7 @@ class yolov8_trt(object):
         stream = self.stream
         context = self.context
         
-        input_img_raw = input_img
-        
-       
-                
+        input_img_raw = input_img             
                 
         #preprocess
         input_img, _, _, _ = self.preprocess_image(input_img_raw,input_size[0],input_size[1])
@@ -347,9 +503,6 @@ class yolov8_trt(object):
         # remove the context from the gpu
         self.ctx.pop()
 
-
-
-
         #amount of time spent
         time_spent = str(end - start)
         output = host_outputs[0]     
@@ -361,22 +514,8 @@ class yolov8_trt(object):
         results = self.postprocess(preds = output,img = input_img,orig_img =  input_img_raw,
         OBJ_THRESH = 0.5,NMS_THRESH = 0.3)   
         
-        
-        box = []
-        conf = 0.0
-        
-        try:
-            results = results[0][0][0]  
-        except:
-            #didnt find img return false
-            return final_output, box, conf, False    
-        box = results[:4]
-        conf = results[4]
-        cls = results[5] 
-        #plot_one_box(box,final_output,label="helipad")      
-        
-        #found an iamge return true for found_img
-        return final_output,box,conf,True       
+
+        return final_output, results
 
     def destroy(self):
         #remove the context from the gpu
