@@ -69,7 +69,6 @@ class MyGetZedInfo(Node):
 
         self.drone_local_position = PoseStamped()
 
-
         # bridge for converting ros img messages to opencv images.
         self.bridge = CvBridge()
 
@@ -139,6 +138,7 @@ class MyGetZedInfo(Node):
             self.camera_info_callback,
             camera_info_qos
         )
+        # sub for the drones local position used to sync detections.
         self.pos_sub = self.create_subscription(
             PoseStamped,
             '/mavros/local_position/pose', 
@@ -268,7 +268,7 @@ class MyGetZedInfo(Node):
             out.append([x, y, z, prediction[4], prediction[5]])
 
         return out
-    # is this function correct?
+    
     def find_pixels_near_center(self, width, height, center_coords, radius):
         """Finds all pixels within a radius of the center coordinates.
 
@@ -392,8 +392,62 @@ class MyGetZedInfo(Node):
             print(e)            
         
     
+class PosSync(object):
+    def __init__(self):
+        self._local_drone_pos = []
+        
 
+class PoseTrack(object):
+    """An object that stores positional information of an object over time.
+           Can be used to store an objects position from different points of view.
+    """
+    def __init__(self,):
+        pass
+        
+        
+class Pose(object):
+    """A simple object that stores position and information about it.
 
+    Args:
+        pos: position of the object.
+        id: given id of the position.
+        time: time the position information was acquired.
+        source: the object that positional info belongs to. must be a string ex: drone
+    """
+
+    def __init__(self, pos, id=None, time=None, source=None):   
+          
+        if not isinstance(pos, String):
+            raise TypeError("source must be a string")
+        
+        self._time_ = time
+        self._id_ = id
+        self._pos_ = pos
+        self._dim_ = len(pos)
+        self._src_ = source
+
+    @property
+    def id(self):
+        return self._id_
+
+    @property
+    def time(self):
+        return self._time_
+
+    @property
+    def src(self):
+        return self._src_
+
+    @property
+    def position(self):
+        return self._pos_
+
+    @property
+    def dim(self):
+        return self._dim_
+
+    
+    
 
 class yolov8_trt(object):
     #initiate the engine and setup stuff
