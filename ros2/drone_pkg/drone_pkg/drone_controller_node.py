@@ -13,10 +13,19 @@ from mavros_msgs.srv import SetMode, CommandBool, CommandTOL, CommandLong
 
 import transforms3d as tf3d
 import math
+
+
 # STATE_QOS used for state topics, like ~/state, ~/mission/waypoints etc.
 STATE_QOS = rclpy.qos.QoSProfile(
     depth=10, durability=rclpy.qos.QoSDurabilityPolicy.TRANSIENT_LOCAL
 )
+
+TARGET_QOS = rclpy.qos.QoSProfile(
+    depth=20, 
+    durability=rclpy.qos.QoSDurabilityPolicy.TRANSIENT_LOCAL.VOLATILE,  
+    reliability=rclpy.qos.ReliabilityPolicy.RELIABLE,
+)
+
 
 # SENSOR_QOS used for most of sensor streams
 SENSOR_QOS = rclpy.qos.qos_profile_sensor_data
@@ -28,9 +37,8 @@ PARAMETERS_QOS = rclpy.qos.qos_profile_parameters
 
 # gz sim -v4 -r iris_runway.sdf
 # sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON --map --console
-# ros2 launch mavros apm.launch fcu_url:=tcp://127.0.0.1:5762@
+# ros2 launch mavros px4.launch fcu_url:=tcp://127.0.0.1:5762@
 # ros2 launch zed_display_rviz2 display_zed_cam.launch.py camera_model:=<camera model>
-
 
 class DroneControllerNode(Node):
     """
@@ -58,6 +66,8 @@ class DroneControllerNode(Node):
         self.avocado_target_drone_position = None # drones position when the last avocado target position message was received
         
         self.current_detection_target = 'landing_pad' # used to tell the trt_node to which object to search for. can be 'landing_pad' or 'avocado' default is landing pad
+        
+        self.is_landing_with_vision = False
         
         # create service clients
         # for long command (datastream requests)...
@@ -93,8 +103,10 @@ class DroneControllerNode(Node):
         self.landing_target_sub = self.create_subscription(PointStamped, '/my_drone/landing_target_position', self.landing_target_callback, SENSOR_QOS)
         # sub for avocado target position x y and z are distance from the drone to the target in meters
         self.avocado_target_sub = self.create_subscription(PointStamped, '/my_drone/avocado_target_position', self.avocado_target_callback, SENSOR_QOS)
-
-
+        
+        # publisher to send landing_target messages to mavros
+        self.landing_target_pub = self.create_publisher(PoseStamped, '/mavros/landing_target/pose', qos_profile=TARGET_QOS )
+        
 
     def avocado_target_callback(self, msg):
         # save the last avocado target position message
@@ -170,10 +182,25 @@ class DroneControllerNode(Node):
         self.get_logger().debug('Local position: {}'.format(msg.pose.position))     
         
     # send a setpoint message to move the vehicle to a local position
-    def move_local(self, x, y, z):
+    def move_local(self, x, y, z, wait=True, error_tolerance = 0.5, timeout = 60):
+        """ Move the vehicle to a local position. keeping the current rotation. 
+            if wait is true pauses until drone reaches target within error tolerance.
+            
+        Args:
+            x (float): x coordinate drone will move to in LOCAL_NED frame.
+            y (float): y coordinate drone will move to in LOCAL_NED frame.
+            z (float): z coordinate drone will move to in LOCAL_NED frame.
+            wait (bool, optional): if true wait until drone reach within error_tolerance of the target.
+            error_tolerance (float): Error tolerance for drones position in meters. Only used when wait is True.
+            timeout (int, optional): seconds to wait for drone tp reach the target position. Only used when wait is True.
         """
-        Move the vehicle to a local position. keeping the current rotation.
-        """
+        
+        try:
+            x, y, z = float(x), float(y), float(z)
+        
+        except Exception as e:
+            self.get_logger().error(e)
+                
         # set the header
         self.last_target_msg.header.stamp = self.get_clock().now().to_msg()
         # set the position
@@ -190,6 +217,12 @@ class DroneControllerNode(Node):
         # publish the message
         self.target_pub.publish(self.last_target_msg)
         self.get_logger().info('Moving to {} {} {}'.format(x,y,z))
+        
+        # wait for drone to reach the pos
+        if wait:
+            # use the last sent message
+            self.wait_until_pos_reached(check_last_target_pose=True, error_tolerance=error_tolerance, timeout=timeout)
+        
 
 
     def wait_until_pos_reached(self, target_x = 0.0, target_y = 0.0, target_z = 0.0, check_last_target_pose = True, error_tolerance=0.5, timeout=60):
@@ -266,8 +299,6 @@ class DroneControllerNode(Node):
 
         # calculate the rotation quaternion
         q = tf3d.euler.euler2quat(0.0, 0.0, radians)
-        self.get_logger().info('Rotating to angle:{} radian:{} q:{}'.format(radians, radians, q))
-
         self.last_target_msg.pose.orientation = Quaternion(w=q[0], x=q[1], y=q[2], z=q[3])
 
         # publish the message
@@ -279,7 +310,7 @@ class DroneControllerNode(Node):
         Wait for the given number of seconds. 
         """
         
-        self.get_logger().info('Waiting for {} seconds'.format(seconds))
+        self.get_logger().debug('Waiting for {} seconds'.format(seconds))
         start_time = self.get_clock().now()
         while (self.get_clock().now() - start_time).nanoseconds / 1e9 < seconds:
             rclpy.spin_once(self)   
@@ -317,6 +348,22 @@ class DroneControllerNode(Node):
         self.rotate_to(current_yaw_radians)    
         self.wait_for(step_time)
 
+    def send_landing_target(self, landing_pos):
+        """Sends a landing_target message to mavros assumes position is in local ned frame.
+        Args:
+            landing_pos: x y z of the landing_target.
+        """
+        msg_to_send = PoseStamped()
+        msg_to_send.header.stamp = self.get_clock().now().to_msg()
+        msg_to_send.pose.position.x = landing_pos['x'] 
+        msg_to_send.pose.position.y = landing_pos['y']
+        msg_to_send.pose.position.z = landing_pos['z']
+
+        self.landing_target_pub.publish(msg_to_send)
+        print("sent vision landing message")
+        
+        
+        
 
 
     def start(self):
@@ -361,7 +408,11 @@ class DroneControllerNode(Node):
                 break
         else:
             self.get_logger().error('Failed to arm')
-
+        
+        
+        ##################################
+        #          start mission         #
+        ##################################    
 
         # take off and climb to 3 meters at current location
         self.takeoff(takeoff_altitude)
@@ -372,12 +423,16 @@ class DroneControllerNode(Node):
             self.get_logger().info('Reached target altitude')
         else:
             self.get_logger().error('Failed to reach target altitude') 
-
-        ##################################
-        # takoff complete. start mission #
-        ##################################
-
-        self.do_360(15, 2)
+        
+        # ------- Takeoff end ------- #
+       
+        self.move_local(0, 0, 0)
+        self.wait_until_pos_reached(0.0, 0.0, 0.0)
+        #self.do_360(90, 2)
+        self.move_local(30, 0, 0)
+        
+        # ------- landing start ------- #
+       
         
         # if landing pad was never found land using RTL mode
         if self.landing_target_position is None or self.landing_target_drone_position is None:
@@ -385,7 +440,7 @@ class DroneControllerNode(Node):
             self.change_mode('RTL')
             self.get_logger().info('Requested RTL mode')
         
-        # NOTE:just for testing. can be imporved.    
+         # NOTE:just for testing. can be imporved.    
         else:
             self.get_logger().info('Starting Vision Landing ...')
 
@@ -422,9 +477,14 @@ class DroneControllerNode(Node):
                     self.get_logger().debug('Reached target position. current position: {}'.format(self.local_pos.pose.position))
                 else:
                     self.get_logger().error('Failed to reach target position')
-            
-            
+        
+                
 
+        
+        ##################################
+        #         Mission end            #
+        ##################################
+        
 
         while rclpy.ok():
             rclpy.spin_once(self)

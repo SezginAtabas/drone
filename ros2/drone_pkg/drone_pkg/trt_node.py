@@ -78,6 +78,7 @@ class MyGetZedInfo(Node):
             # NOTE: These parameters are for testing and are not final.
             self.landing_tracker = Tracker(distance_function="euclidean", distance_threshold=1000.0, hit_counter_max = 300)
             self.avo_tracker = Tracker(distance_function="euclidean", distance_threshold=1000.0, hit_counter_max = 300)
+        
         except Exception as e:
             self.get_logger().error(f"Error Loading tracker! \n {e}")
             exit()
@@ -391,62 +392,52 @@ class MyGetZedInfo(Node):
             self.avo_trt.destroy()
             print(e)            
         
+
+"""
+1. Object detection model finds bounding boxes.
+
+2. Bounding boxes are then passed to norfair tracker. 
+
+3. Norfair tracker tracks the targets position over a 2d plane.
+
+4. 2d pixel coordinates are used with a depth image to find that objects 3d position.
+
+5. 3d position data is stored within PoseHistory class with timestamps.
+    unique id of the TrackedObject class from norfair are used to keep track of objects.
     
-class PosSync(object):
-    def __init__(self):
-        self._local_drone_pos = []
-        
+6. then this data is matched with drones position at the time of detection to find the abs position of the target.     
 
-class PoseTrack(object):
-    """An object that stores positional information of an object over time.
-           Can be used to store an objects position from different points of view.
-    """
-    def __init__(self,):
-        pass
-        
-        
-class Pose(object):
-    """A simple object that stores position and information about it.
+NOTE:when the target leaves the frame and enters it again a new objects is created.
+    maybe compare position data and match them?
+"""
 
-    Args:
-        pos: position of the object.
-        id: given id of the position.
-        time: time the position information was acquired.
-        source: the object that positional info belongs to. must be a string ex: drone
-    """
 
-    def __init__(self, pos, id=None, time=None, source=None):   
-          
-        if not isinstance(pos, String):
-            raise TypeError("source must be a string")
+
+
+class PoseHistory(object):
+    def __init__(self, object_id, obj_rel_pos, timestamp, main_object_pos):
         
-        self._time_ = time
-        self._id_ = id
-        self._pos_ = pos
-        self._dim_ = len(pos)
-        self._src_ = source
-
+        self._id = object_id
+        self._rel_pos_list = [obj_rel_pos, ]
+        self._timestamp_list = [timestamp, ]
+        self._main_object_pos = [main_object_pos, ]
+    
     @property
     def id(self):
-        return self._id_
-
-    @property
-    def time(self):
-        return self._time_
-
-    @property
-    def src(self):
-        return self._src_
-
-    @property
-    def position(self):
-        return self._pos_
-
-    @property
-    def dim(self):
-        return self._dim_
-
+        return self._id
     
+    @property
+    def length(self):
+        return len(self._rel_pos_list)
+         
+    def new_entry(self, timestamp, obj_rel_pos, main_object_pos):
+        
+        self._rel_pos_list.append(obj_rel_pos)
+        self._timestamp_list.append(timestamp)
+        self._main_object_pos.append(main_object_pos)
+        
+        
+        
     
 
 class yolov8_trt(object):

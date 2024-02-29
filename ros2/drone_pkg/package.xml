@@ -11,8 +11,10 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>mavros</exec_depend>
   <exec_depend>mavros_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>threading</exec_depend>
+  <exec_depend>transforms3d</exec_depend>
   <exec_depend>time</exec_depend>
   <exec_depend>math</exec_depend>
   <exec_depend>numpy</exec_depend>
