@@ -1,0 +1,3 @@
+mavros_node:
+  ros__parameters:
+    fcu_url: "tcp://127.0.0.1:5762@"

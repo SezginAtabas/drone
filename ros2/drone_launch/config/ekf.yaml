@@ -1,0 +1,117 @@
+ekf_filter_node_odom:
+  ros__parameters:
+    frequency: 30.0
+    two_d_mode: false
+    print_diagnostics: true
+    debug: false
+    publish_tf: true
+
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_link
+    world_frame: odom
+    
+    odom0: /zed/zed_node/odom
+    odom0_config: [true,  true,  true,  # X, Y, Z
+               true,  true,  true,  # Roll, Pitch, Yaw
+               false, false, false, # Vx, Vy, Vz
+               false, false, false,  # Vroll, Vpitch, Vyaw
+               false, false, false] # Ax, Ay, Az
+    
+    odom0_differential: false
+    odom0_relative: true
+    odom0_queue_size: 5
+
+    odom1: /mavros/local_position/odom
+    odom1_config: [true,  true,  true,  # X, Y, Z
+               true,  true,  true,  # Roll, Pitch, Yaw
+               false, false, false, # Vx, Vy, Vz
+               false, false, false,  # Vroll, Vpitch, Vyaw
+               false, false, false] # Ax, Ay, Az
+    
+    odom1_differential: false
+    odom1_relative: true
+    odom1_queue_size: 5
+
+    imu0: /zed/zed_node/imu/data
+    imu0_config: [false, false, false,
+                  true,  true,  true,
+                  false, false, false,
+                  true,  true,  true,
+                  true,  true,  true]
+    
+    imu0_differential: false
+    imu0_relative: true
+    imu0_queue_size: 5
+
+    imu1: /mavros/imu/data
+    imu1_config: [false, false, false,
+                  true,  true,  true,
+                  false, false, false,
+                  true,  true,  true,
+                  true,  true,  true]
+    
+    imu1_differential: false
+    imu1_relative: true
+    imu1_queue_size: 5
+
+ekf_filter_node_map:
+  ros__parameters:
+    frequency: 30.0
+    two_d_mode: false
+    print_diagnostics: true
+    debug: false
+    publish_tf: true
+
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_link
+    world_frame: map
+
+    odom0: /zed/zed_node/odom
+    odom1_config: [true,  true,  true,  # X, Y, Z
+               true,  true,  true,  # Roll, Pitch, Yaw
+               false, false, false, # Vx, Vy, Vz
+               false, false, false,  # Vroll, Vpitch, Vyaw
+               false, false, false] # Ax, Ay, Az
+    
+    odom0_differential: false
+    odom0_relative: true
+    odom0_queue_size: 5
+
+
+    odom1: /mavros/odometry/out
+    odom0_config: [true,  true,  true,  # X, Y, Z
+               true,  true,  true,  # Roll, Pitch, Yaw
+               false, false, false, # Vx, Vy, Vz
+               false, false, false,  # Vroll, Vpitch, Vyaw
+               false, false, false] # Ax, Ay, Az
+    
+    odom1_differential: false
+    odom1_relative: true
+    odom1_queue_size: 5
+
+    imu0: /zed/zed_node/imu/data
+    imu0_config: [false, false, false,
+                  true,  true,  true,
+                  false, false, false,
+                  true,  true,  true,
+                  true,  true,  true]
+    
+    imu0_differential: false
+    imu0_relative: true
+    imu0_queue_size: 5
+
+
+navsat_transform:
+  ros__parameters:
+    frequency: 30.0
+    delay: 3.0
+    magnetic_declination_radians: 0.0
+    yaw_offset: 0.0
+    zero_altitude: true
+    broadcast_utm_transform: true
+    publish_filtered_gps: true
+    use_odometry_yaw: true
+    wait_for_datum: false 
+
