@@ -17,6 +17,10 @@ setup(
         (os.path.join('share', package_name, 'launch'), glob.glob(os.path.join('launch', '*launch.[pxy][yma]*'))),
         # get config files
         (os.path.join('share', package_name, 'config'), glob.glob(os.path.join('config', '*.yaml'))),
+        # rviz files
+        (os.path.join('share', package_name, 'rviz2'), glob.glob(os.path.join('rviz2', '*.rviz'))),
+        # urdf files
+        (os.path.join('share', package_name, 'urdf'), glob.glob(os.path.join('urdf', '*.xacro'))),
         
     ],
     install_requires=['setuptools'],

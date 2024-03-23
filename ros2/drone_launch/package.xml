@@ -7,6 +7,10 @@
   <maintainer email="atabassezgin@gmail.com">xtrana</maintainer>
   <license>TODO: License declaration</license>
 
+  <exec_depend>joint_state_publisher</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rviz</exec_depend>
+  <exec_depend>xacro</exec_depend>
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
