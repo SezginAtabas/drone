@@ -11,28 +11,14 @@
   <xacro:include filename="$(find zed_wrapper)/urdf/zed_macro.urdf.xacro" />
   <xacro:zed_camera name="$(arg camera_name)" model="$(arg camera_model)" />
 
-  <!-- Add a joint to connect the ZED Camera to the robot -->
-  <xacro:if value="$(arg use_zed_localization)">
-    <!-- ZED Localization -> The reference link is '$(arg camera_name)_camera_link' and 'base_link' is a child -->
-    <joint name="$(arg camera_name)_joint" type="fixed">
+  <joint name="$(arg camera_name)_joint" type="fixed">
       <parent link="$(arg camera_name)_camera_link"/>
       <child link="base_link"/>
       <origin
-        xyz="-0.12 0.0 -0.06"
+        xyz="-0.15 0.0 -0.06"
         rpy="0 0 0"
       />
-    </joint>
-  </xacro:if>
-  <xacro:unless value="$(arg use_zed_localization)">
-    <!-- NO ZED Localization -> '$(arg camera_name)_camera_link' is a child of 'base_link' -->
-    <joint name="$(arg camera_name)_joint" type="fixed">
-      <parent link="base_link"/>
-      <child link="$(arg camera_name)_camera_link"/>
-      <origin
-        xyz="0.12 0.0 0.25"
-        rpy="0 0 0"
-      />
-    </joint>
-  </xacro:unless>
+  </joint>
+
   
 </robot>

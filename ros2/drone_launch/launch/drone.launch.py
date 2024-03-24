@@ -94,11 +94,11 @@ def launch_setup(context, *args, **kwargs):
     )
     
     if start_rviz_node.perform(context).lower() == 'true':
-        nodes_to_launch = [mavros_node, zed_wrapper_launch, rviz2_node]
+        nodes_to_launch = [ mavros_node, zed_wrapper_launch, rviz2_node]
     else:
-        nodes_to_launch = [mavros_node, zed_wrapper_launch]
+        nodes_to_launch = [mavros_node, zed_wrapper_launch ]
 
-    return nodes_to_launch
+    return nodes_to_launch[1:]
 
 
 def generate_launch_description():
@@ -126,7 +126,7 @@ def generate_launch_description():
             choices=['true', 'false']),
         DeclareLaunchArgument(
             'publish_map_tf',
-            default_value='true',
+            default_value='false',
             description='Enable publication of the `map -> odom` TF. Note: Ignored if `publish_tf` is False.',
             choices=['true', 'false']),
         DeclareLaunchArgument(
