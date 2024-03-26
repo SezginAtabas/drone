@@ -121,7 +121,7 @@ def generate_launch_description():
             choices=['true', 'false']),
         DeclareLaunchArgument(
             'publish_tf',
-            default_value='true',
+            default_value='false',
             description='Enable publication of the `odom -> camera_link` TF.',
             choices=['true', 'false']),
         DeclareLaunchArgument(
