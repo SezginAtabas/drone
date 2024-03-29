@@ -64,7 +64,7 @@
             pos_tracking_enabled: true # True to enable positional tracking from start
             pos_tracking_mode: 'QUALITY' # Matches the ZED SDK setting: 'QUALITY', 'STANDARD'
             imu_fusion: true # enable/disable IMU fusion. When set to false, only the optical odometry will be used.
-            publish_tf: true # [usually overwritten by launch file] publish `odom -> camera_link` TF
+            publish_tf: false # [usually overwritten by launch file] publish `odom -> camera_link` TF
             publish_map_tf: false # [usually overwritten by launch file] publish `map -> odom` TF
             map_frame: 'map'
             odometry_frame: 'odom'
@@ -82,13 +82,13 @@
             fixed_z_value: 0.00 # Value to be used for Z coordinate if `two_d_mode` is true
             transform_time_offset: 0.0 # The value added to the timestamp of `map->odom` and `odom->camera_link` transform being generated
             qos_history: 1 # '1': KEEP_LAST - '2': KEEP_ALL
-            qos_depth: 5 # Queue size if using KEEP_LAST
+            qos_depth: 10 # Queue size if using KEEP_LAST
             qos_reliability: 1 # '1': RELIABLE - '2': BEST_EFFORT
             qos_durability: 2 # '1': TRANSIENT_LOCAL - '2': VOLATILE
 
         gnss_fusion:
             gnss_fusion_enabled: false # fuse 'sensor_msg/NavSatFix' message information into pose data
-            gnss_fix_topic: '/gps/fix' # Name of the GNSS topic of type NavSatFix to subscribe [Default: '/gps/fix']
+            gnss_fix_topic: '/mavros/global_position/raw/fix' # Name of the GNSS topic of type NavSatFix to subscribe [Default: '/gps/fix']
             gnss_init_distance: 5.0 # The minimum distance traveled by the robot required to initilize the GNSS fusion [SDK <= v4.0.5]
             gnss_zero_altitude: false # Set to `true` to ignore GNSS altitude information
             gnss_frame: 'gnss_link' # [usually overwritten by launch file] The TF frame of the GNSS sensor
@@ -119,7 +119,7 @@
             sensors_image_sync: false # Synchronize Sensors messages with latest published video/depth message
             sensors_pub_rate: 200. # frequency of publishing of sensors data. MAX: 400. - MIN: grab rate
             qos_history: 1 # '1': KEEP_LAST - '2': KEEP_ALL
-            qos_depth: 1 # Queue size if using KEEP_LAST
+            qos_depth: 10 # Queue size if using KEEP_LAST
             qos_reliability: 1 # '1': RELIABLE - '2': BEST_EFFORT -
             qos_durability: 2 # '1': TRANSIENT_LOCAL - '2': VOLATILE
 

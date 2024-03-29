@@ -12,10 +12,10 @@
   <xacro:zed_camera name="$(arg camera_name)" model="$(arg camera_model)" />
 
   <joint name="$(arg camera_name)_joint" type="fixed">
-      <parent link="$(arg camera_name)_camera_link"/>
-      <child link="base_link"/>
+      <parent link="base_link"/>
+      <child link="$(arg camera_name)_camera_link"/>
       <origin
-        xyz="-0.15 0.0 -0.06"
+        xyz="0.15 0.0 0.06"
         rpy="0 0 0"
       />
   </joint>

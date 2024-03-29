@@ -51,7 +51,7 @@
 /mavros/**/global_position:
   ros__parameters:
     frame_id: "map"             # origin frame
-    child_frame_id: "base_link" # body-fixed frame
+    child_frame_id: "odom" # body-fixed frame
     rot_covariance: 99999.0   # covariance for attitude?
     gps_uere: 1.0             # User Equivalent Range Error (UERE) of GPS sensor (m)
     use_relative_alt: true    # use relative altitude for local coordinates
@@ -76,7 +76,7 @@
     frame_id: "map"
     tf.send: true 
     tf.frame_id: "map"
-    tf.child_frame_id: "odom" 
+    tf.child_frame_id: "odom" # *changed base_link
     tf.send_fcu: false
 
 # param
