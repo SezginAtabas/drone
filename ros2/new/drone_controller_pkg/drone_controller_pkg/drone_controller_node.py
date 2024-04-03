@@ -11,6 +11,8 @@ from mavros_msgs.srv import SetMode, CommandTOL, CommandBool, CommandLong
 import numpy as np
 from typing import List
 from collections import deque
+import transforms3d as tf3d
+
 
 # STATE_QOS used for state topics, like ~/state, ~/mission/waypoints etc.
 STATE_QOS = rclpy.qos.QoSProfile(
@@ -29,16 +31,16 @@ SENSOR_QOS = rclpy.qos.qos_profile_sensor_data
 # PARAMETERS_QOS used for parameter streams
 PARAMETERS_QOS = rclpy.qos.qos_profile_parameters
 
-class Point3D:
-    def __init__(self, pos: List[float]=None, rot: List[float]=None, init_time: float=None, frame_id: str=None):
+class Pose3D:
+    def __init__(self, pos: List[float], rot: List[float], init_time: float, frame_id: str='relative_frame'):
         """ a point in 3d space with rotation.
             Assumes the rotation is a quaternion, and the position is in meters.
 
         Args:
             pos (List[float], optional): Position of point in 3d space. Defaults to None.
-            rot (List[float], optional): qatternion rotation of point in 3d space. Defaults to None.
+            rot (List[float], optional): quaterion rotation of point in 3d space. Defaults to None.
             init_time (float, optional): time of initialization. Defaults to None.
-            frame_id (str, optional): frame id of point. Defaults to None.
+            frame_id (str, optional): frame id of point. Defaults to "relative_frame".
         """
         
         if len(rot)!= 4:
@@ -49,8 +51,8 @@ class Point3D:
         
         self._frame_id = frame_id
         self._init_time = init_time
-        self._rot = (np.array(rot) if rot else np.empty(4))
-        self._pos = (np.array(pos) if pos else np.empty(3))
+        self._rot = np.array(rot, dtype=np.float64) if rot else np.nan 
+        self._pos = np.array(pos, dtype=np.float64)
 
     @property
     def pos(self) -> np.ndarray:
@@ -68,14 +70,65 @@ class Point3D:
     def init_time(self) -> float:
         return self._init_time
     
-class Obj3D(object):
-    def __init__(self, name: str, max_length: int = 100, **args):
+    
+    def distance_to(self, other) -> float:
+        """Calculate the distance between two points in 3d space
 
-        self._name = name
-        self._points = deque(maxlen=max_length)
+        Args:
+            other (Pose3D): the other point to calculate distance to
+
+        Raises:
+            ValueError: If the other point is not a Pose3D
+
+        Returns:
+            float: the distance between the two points in 3d space
+        """
+        if not isinstance(other, Pose3D):
+            raise ValueError("Other must be an instance of Pose3D")
         
-        if args:
-            self._points.append(Point3D(**args))
+        return np.linalg.norm(self.pos - other.pos)
+    
+    def near_quaternion(self, other, rtol: float = 1e-3, atol: float = 1e-4) -> bool:
+        """Check if the quaternion is close to another"""
+        
+        if not isinstance(other, Pose3D):
+            raise ValueError("Other must be an instance of Pose3D")
+        
+        return tf3d.quaternions.nearly_equivalent(self._rot, other._rot, rtol=rtol, atol=atol)
+    
+    def is_near(self, other, threshold: float = 0.05, ignore_quaternion: bool=True, rtol: float = 1e-3, atol: float = 1e-4) -> bool:
+        """Check if the pose is close to another.
+
+        Args:
+            other (Pose3D): the other pose to check if close to.
+            threshold (float, optional): the distance threshold for the pose. Defaults to 0.05.
+            ignore_quaternion (bool, optional): Whether or not to ignore the quaternion when comparing the poses. Defaults to True.
+            rtol (float, optional): rtol value passed to np.allclose() for the quaternion comparison. ignored if ignore_quaternion is True. Defaults to 1e-3.
+            atol (float, optional): atol value passed to np.allclose() for the quaternion comparison. ignored if ignore_quaternion is True. Defaults to 1e-4.
+
+        Returns:
+            bool: True if the pose is close to the other, otherwise False.
+        """
+        
+        distance = self.distance_to(other)
+        if distance < threshold and (not ignore_quaternion or self.near_quaternion(other, rtol=rtol, atol=atol)):
+            return True
+        
+        return False
+
+
+class Obj3D(object):
+    def __init__(self, name: str, max_length: int = 100) -> None:
+        """
+
+        Args:
+            name (str): Name of the object.
+            max_length (int, optional): max amount of stored pose data. Defaults to 100.
+            pose_check_threshold (float, optional): Tolerance of the pose distance calculation in meters while checking for target pose. Defaults to 0.1.
+        """
+        self._name = name
+        self._pose_targets = deque()
+        self._pose_q = deque(maxlen=max_length)
 
     @property
     def name(self) -> str:
@@ -83,31 +136,88 @@ class Obj3D(object):
 
     @property
     def max_length(self) -> int:
-        return self._points.maxlen
+        return self._pose_q.maxlen
     
     @property
-    def points(self) -> List[Point3D]:
-        return list(self._points).copy()
+    def pose_check_threshold(self) -> float:
+        return self._pose_check_threshold
     
-    def add_point(self, **args) -> None:
+    @pose_check_threshold.setter
+    def pose_check_threshold(self, value: float):
+        self._pose_check_threshold = value
+    
+    @property
+    def current_pose(self) -> Pose3D:
+        """ Returns the current pose of the object.
+        Assumes that the last added pose is the current one.
+
+        Returns:
+            Pose3D: current pose of the object.
+        """
+        self._pose_q[-1]
+    
+    @property
+    def current_pose_target(self) -> Pose3D:
+        """
+        Current pose target. This is the pose that will be used for the next pose check.
+        """
+        return self._pose_targets[0]
+        
+    def get_all_pose_q(self):
+        return list(self._pose_q)
+    
+    def add_pose(self, pos: List[float], rot: List[float], init_time: float, frame_id: str='relative_frame') -> None:
         """adds a new point to the object.
         if maximum length is reached, the oldest point will be removed.
         """
-        self._points.append(Point3D(**args))
+        self._pose_q.append(Pose3D(pos=pos, rot=rot, init_time=init_time, frame_id=frame_id))
+    
+    def add_pose_target(self, pos: List[float], rot: List[float], init_time: float, frame_id: str='relative_frame') -> None:
+        """ Adds a new position target to the target position queue.
 
+        Args:
+            pos (List[float], optional): Position of point in 3d space. Defaults to None.
+            rot (List[float], optional): quaterion rotation of point in 3d space. Defaults to None.
+            init_time (float, optional): time of initialization. Defaults to None.
+            frame_id (str, optional): frame id of point. Defaults to "relative_frame".
+        
+        """
+        self._pose_targets.append(Pose3D(pos=pos, rot=rot, init_time=init_time, frame_id=frame_id))
+    
+    def update_pose_target(self, threshold: float = 0.05, ignore_quaternion: bool=True, rtol: float = 1e-3, atol: float = 1e-4) -> bool:
+        """
+        Checks if the current pose target is reached and updates the drone pose target if it is.
+        
+        returns:
+            bool: True if pose target is reached, False otherwise.
+
+        """
+        if len(self._pose_targets) > 0:
+            pose_target, current_pose = self.current_pose_target, self.current_pose
+            if pose_target.is_near(current_pose, threshold=threshold, ignore_quaternion=ignore_quaternion, rtol=rtol, atol=atol):
+                self._pose_targets.pop(0)
+                return True
+        return False
+    
+    
 class DroneController(Node):
 
     def __init__(self):
         super().__init__("drone_controller")
         
-        
+        # drone object instance. Used to track the current pose of the drone.
         self.drone_obj = Obj3D("drone")
+        self.avocado_obj = Obj3D("avocado")
         
-        # Drone state messages
+        # Subscriber to the avocados position relative to the drone. Published by tensorrt node.
+        # NOTE: Might need to be changed after further testing. But for now it works.
+        self.avocado_pose_sub = self.create_subscription(PoseStamped, "/avocado_pose_target", self.avocado_pose_target_callback, 10)
+        
+        
+        # Drone state messages.
         self.drone_state_messages = []
-
+        # drone state subscriber published by mavros at 1 Hz
         self.drone_state_sub = self.create_subscription(DroneState, '/mavros/state', self.drone_state_callback, STATE_QOS )
-        
         # odometry from ekf3 filter
         self.drone_odom_sub = self.create_subscription(Odometry, '/odometry/filtered', self.drone_odom_callback, SENSOR_QOS)
         
@@ -130,13 +240,27 @@ class DroneController(Node):
         
         # publisher for setpoint messages. this is how we move the drone.
         self.local_target_pub = self.create_publisher(PoseStamped, '/mavros/setpoint_position/local', 10)
-                
-        self.ready_for_flight = self.setup_for_flight()
+        
+        # wait for the drone to be ready for flight
+        # NOTE: this is not the most elegant way of doing this but it works for now
+        self.ready_for_flight = self.setup_for_flight(timeout=60, wait_for_standby=True, tries=3)
+        
+        # create a timer to call main_loop. This where we actually send commands to the drone.
+        self.main_loop_timer = self.create_timer(0.1, self.main_loop)
 
     
+    def avocado_pose_target_callback(self, msg : PoseStamped):
+        
+        self.avocado_obj.add_pose(pos=[msg.pose.position.x, msg.pose.position.y, msg.pose.position.z], 
+                                 rot=[msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z], 
+                                 init_time=msg.header.stamp.nanosec,
+                                 frame_id=msg.header.frame_id)
+
     def drone_odom_callback(self, msg : Odometry):
-        # get the current position of the drone and add it to the object
-        self.drone_obj.add_point(pos=[msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z], 
+        """
+        Add a new pose to the drone object.
+        """
+        self.drone_obj.add_pose(pos=[msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z], 
                                  rot=[msg.pose.pose.orientation.w, msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z], 
                                  init_time=msg.header.stamp.nanosec,
                                  frame_id=msg.header.frame_id)
@@ -290,6 +414,16 @@ class DroneController(Node):
         
         self.local_target_pub.publish(msg)
         self.get_logger().info(f"moving to position:{position[0], position[1], position[2]} , orientation:{rot_q[0], rot_q[1], rot_q[2], rot_q[3]}")
+
+
+    def main_loop(self):
+        
+        # check if the drone is ready or not
+        if not self.ready_for_flight():
+            self.get_logger().debug("Waiting for drone to be ready...")
+            return
+        
+       
 
 def main():
     rclpy.init()
