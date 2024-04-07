@@ -1,6 +1,9 @@
 from setuptools import find_packages, setup
 
-package_name = 'drone_control_pkg'
+import os
+import glob
+
+package_name = 'drone_controller_pkg'
 
 setup(
     name=package_name,
@@ -10,6 +13,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        (os.path.join('share', package_name, 'include'), glob.glob(os.path.join('include', '*.py'))),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -20,7 +24,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'just_mavros = drone_control_pkg.just_mavros:main'
+            'drone_controller_node = drone_controller_pkg.drone_controller_node:main'
         ],
     },
 )
