@@ -96,7 +96,7 @@ class Pose3D:
         
         return tf3d.quaternions.nearly_equivalent(self._rot, other._rot, rtol=rtol, atol=atol)
     
-    def is_near(self, other, threshold: float = 0.05, ignore_quaternion: bool=True, rtol: float = 1e-3, atol: float = 1e-4) -> bool:
+    def is_near(self, other, threshold: float = 0.05, ignore_quaternion: bool=True, rtol: float = 0.1, atol: float = 0.1) -> bool:
         """Check if the pose is close to another.
 
         Args:
@@ -111,11 +111,11 @@ class Pose3D:
         """
         
         distance = self.distance_to(other)
-        if distance < threshold and (not ignore_quaternion or self.near_quaternion(other, rtol=rtol, atol=atol)):
-            return True
         
-        return False
-
+        if ignore_quaternion:
+            return (distance < threshold and self.near_quaternion(other, rtol=rtol, atol=atol))
+        
+        return distance < threshold
 
 class Obj3D(object):
     def __init__(self, name: str, max_length: int = 100) -> None:
@@ -148,20 +148,22 @@ class Obj3D(object):
     
     @property
     def current_pose(self) -> Pose3D:
-        """ Returns the current pose of the object.
-        Assumes that the last added pose is the current one.
+        """ Returns the current pose of the object. If no pose has been added yet, returns None.
 
         Returns:
             Pose3D: current pose of the object.
         """
-        self._pose_q[-1]
-    
+        if len(self._pose_q) > 0:
+            return self._pose_q[-1]
+        
+        return None
+
     @property
     def current_pose_target(self) -> Pose3D:
         """
         Current pose target. This is the pose that will be used for the next pose check.
         """
-        return self._pose_targets[0]
+        return self._pose_targets[0] if len(self._pose_targets) > 0 else None
         
     def get_all_pose_q(self):
         return list(self._pose_q)
@@ -172,7 +174,7 @@ class Obj3D(object):
         """
         self._pose_q.append(Pose3D(pos=pos, rot=rot, init_time=init_time, frame_id=frame_id))
     
-    def add_pose_target(self, pos: List[float], rot: List[float], init_time: float, frame_id: str='relative_frame') -> None:
+    def add_pose_target(self, pos: List[float], rot: List[float], init_time: float=0.0, frame_id: str='relative_frame') -> None:
         """ Adds a new position target to the target position queue.
 
         Args:
@@ -194,11 +196,23 @@ class Obj3D(object):
         """
         if len(self._pose_targets) > 0:
             pose_target, current_pose = self.current_pose_target, self.current_pose
-            if pose_target.is_near(current_pose, threshold=threshold, ignore_quaternion=ignore_quaternion, rtol=rtol, atol=atol):
+            if current_pose and pose_target.is_near(current_pose, threshold=threshold, ignore_quaternion=ignore_quaternion, rtol=rtol, atol=atol):
                 self._pose_targets.pop(0)
                 return True
         return False
     
+    def reset_pose_queue(self) -> None:
+        """ Resets all pose data in the queue. 
+        """
+        self._pose_q.clear()
+    
+    def pose_queue_size(self) -> int:
+        """ Returns the size of the pose queue.
+        
+        returns:
+            int: Size of the pose queue.
+        """
+        return len(self._pose_q)
     
 class DroneController(Node):
 
@@ -209,6 +223,8 @@ class DroneController(Node):
         self.drone_obj = Obj3D("drone")
         self.avocado_obj = Obj3D("avocado")
         
+        self.first_avocado_pose = None
+        
         # Subscriber to the avocados position relative to the drone. Published by tensorrt node.
         # NOTE: Might need to be changed after further testing. But for now it works.
         self.avocado_pose_sub = self.create_subscription(PoseStamped, "/avocado_pose_target", self.avocado_pose_target_callback, 10)
@@ -218,7 +234,7 @@ class DroneController(Node):
         self.drone_state_messages = []
         # drone state subscriber published by mavros at 1 Hz
         self.drone_state_sub = self.create_subscription(DroneState, '/mavros/state', self.drone_state_callback, STATE_QOS )
-        # odometry from ekf3 filter
+        # odometry from ekf3 filter. 
         self.drone_odom_sub = self.create_subscription(Odometry, '/odometry/filtered', self.drone_odom_callback, SENSOR_QOS)
         
         # for long command (datastream requests)
@@ -241,14 +257,9 @@ class DroneController(Node):
         # publisher for setpoint messages. this is how we move the drone.
         self.local_target_pub = self.create_publisher(PoseStamped, '/mavros/setpoint_position/local', 10)
         
-        # wait for the drone to be ready for flight
-        # NOTE: this is not the most elegant way of doing this but it works for now
-        self.ready_for_flight = self.setup_for_flight(timeout=60, wait_for_standby=True, tries=3)
+        self.start()
         
-        # create a timer to call main_loop. This where we actually send commands to the drone.
-        self.main_loop_timer = self.create_timer(0.1, self.main_loop)
 
-    
     def avocado_pose_target_callback(self, msg : PoseStamped):
         
         self.avocado_obj.add_pose(pos=[msg.pose.position.x, msg.pose.position.y, msg.pose.position.z], 
@@ -260,6 +271,13 @@ class DroneController(Node):
         """
         Add a new pose to the drone object.
         """
+        
+        if not self.first_avocado_pose:
+            self.first_avocado_pose = Pose3D(pos=[msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z], 
+                                 rot=[msg.pose.pose.orientation.w, msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z], 
+                                 init_time=msg.header.stamp.nanosec,
+                                 frame_id=msg.header.frame_id)
+        
         self.drone_obj.add_pose(pos=[msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z], 
                                  rot=[msg.pose.pose.orientation.w, msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z], 
                                  init_time=msg.header.stamp.nanosec,
@@ -329,10 +347,10 @@ class DroneController(Node):
             target_alt: target altitude.
         """
         takeoff_req = CommandTOL.Request()
-        takeoff_req.altitude = target_alt
+        takeoff_req.altitude = float(target_alt)
         future = self.takeoff_cli.call_async(takeoff_req)
-        rclpy.spin_until_future_complete(self, future)
-
+        return rclpy.spin_until_future_complete(self, future)
+    
     def request_needed(self, msg_interval = 100000):
         """ Requests all needed messages from the fcu.
             uses request_data_stream function.
@@ -400,13 +418,25 @@ class DroneController(Node):
         
         return False
 
-    def go_to_local(self, position, rot_q):
+    def go_to_local(self, position: List[float], rot_q: List[float], ignore_rotation=False):
+        """ Send a command to move the drone to target local position and orientation.
+            Converts the pose data to NED from ENU and sends the command to the drone.
+            
+        Args:
+            position (List[float]): Target local position in NED frame
+            rot_q (List[float]): Target local orientation in NED frame
+            ignore_rotation (bool): If True, ignores rotations and sends the latest rotation to the drone. Default is False.
+        """
         
         msg = PoseStamped()
         msg.pose.position.x = position[0]
         msg.pose.position.y = position[1]
         msg.pose.position.z = position[2]
         
+        if ignore_rotation:
+            # send the latest rotation. NOTE: Not ideal but works for now. Might need changes in the future.
+            rot_q = self.drone_obj.current_pose.rot
+            
         msg.pose.orientation.w = rot_q[0]
         msg.pose.orientation.x = rot_q[1]
         msg.pose.orientation.y = rot_q[2]
@@ -415,16 +445,58 @@ class DroneController(Node):
         self.local_target_pub.publish(msg)
         self.get_logger().info(f"moving to position:{position[0], position[1], position[2]} , orientation:{rot_q[0], rot_q[1], rot_q[2], rot_q[3]}")
 
-
     def main_loop(self):
         
-        # check if the drone is ready or not
-        if not self.ready_for_flight():
-            self.get_logger().debug("Waiting for drone to be ready...")
-            return
+        # check if there is a avocado found
+        if self.avocado_obj.pose_queue_size() > 0:
+            # TODO: Add logic to calculate and move to the avocado location.
+            # Since avocado position data is relative to the zed cameara, we need to calculate it based on the current position of the drone.
+            # Can be done by using tf2 transforms.
+            self.get_logger().info("Avocado found!")
+            pass
         
-       
+        # if drone reached the target, then move to next target position
+        if self.drone_obj.update_pose_target() and self.drone_obj.current_pose_target:
+            # send the next target pose to the drone
+            self.go_to_local(self.drone_obj.current_pose_target.pos, self.drone_obj.current_pose_target.rot, ignore_rotation=False)
+            self.get_logger().info("Moving to next target position...")
+            
+        rclpy.spin_once(self)
 
+    def wait_for(self, seconds):
+        """
+        Wait for the given number of seconds. 
+        """
+        self.get_logger().info('Waiting for {} seconds'.format(seconds))
+        start_time = self.get_clock().now()
+        while (self.get_clock().now() - start_time).nanoseconds / 1e9 < seconds:
+            rclpy.spin_once(self)   
+        return True    
+
+    def start(self):
+        # setup
+        self.setup_for_flight(timeout=60, wait_for_standby=True, tries=3)
+        
+        # takeoff
+        self.get_logger().info("Taking off...")
+        self.takeoff(target_alt=10.0)
+        self.wait_for(10)
+        self.get_logger().info("takeoff complete!")
+        
+        self.get_logger().info("Adding pose targets ...")
+        # add pose targets NOTE: placeholder for now
+        self.drone_obj.add_pose_target(pos=[1, 1, 10], rot=[0, 0, 0, 1])
+        self.drone_obj.add_pose_target(pos=[1, 2, 10], rot=[0, 0, 0, 1])
+        self.drone_obj.add_pose_target(pos=[1, 3, 10], rot=[0, 0, 0, 1])
+        self.drone_obj.add_pose_target(pos=[1, 4, 10], rot=[0, 0, 0, 1])
+        
+        self.get_logger().info("Sending first movement command...")
+        self.go_to_local(self.drone_obj.current_pose_target.pos, self.drone_obj.current_pose_target.rot, ignore_rotation=False)
+        
+        self.get_logger().info("Executing main loop...")
+        self.main_loop_timer = self.create_timer(0.1, self.main_loop)
+  
+    
 def main():
     rclpy.init()
     drone_controller = DroneController()
