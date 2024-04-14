@@ -391,55 +391,6 @@ class MyGetZedInfo(Node):
             self.landing_trt.destroy()
             self.avo_trt.destroy()
             print(e)            
-        
-
-"""
-1. Object detection model finds bounding boxes.
-
-2. Bounding boxes are then passed to norfair tracker. 
-
-3. Norfair tracker tracks the targets position over a 2d plane.
-
-4. 2d pixel coordinates are used with a depth image to find that objects 3d position.
-
-5. 3d position data is stored within PoseHistory class with timestamps.
-    unique id of the TrackedObject class from norfair are used to keep track of objects.
-    
-6. then this data is matched with drones position at the time of detection to find the abs position of the target.     
-
-NOTE:when the target leaves the frame and enters it again a new objects is created.
-    maybe compare position data and match them?
-"""
-
-
-
-
-class PoseHistory(object):
-    def __init__(self, object_id, obj_rel_pos, timestamp, main_object_pos):
-        
-        self._id = object_id
-        self._rel_pos_list = [obj_rel_pos, ]
-        self._timestamp_list = [timestamp, ]
-        self._main_object_pos = [main_object_pos, ]
-    
-    @property
-    def id(self):
-        return self._id
-    
-    @property
-    def length(self):
-        return len(self._rel_pos_list)
-         
-    def new_entry(self, timestamp, obj_rel_pos, main_object_pos):
-        
-        self._rel_pos_list.append(obj_rel_pos)
-        self._timestamp_list.append(timestamp)
-        self._main_object_pos.append(main_object_pos)
-        
-        
-        
-    
-
 class yolov8_trt(object):
     #initiate the engine and setup stuff
     def __init__(self, engine_file_path, input_size, output_shape):

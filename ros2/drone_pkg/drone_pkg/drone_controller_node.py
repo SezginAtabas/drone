@@ -40,17 +40,10 @@ PARAMETERS_QOS = rclpy.qos.qos_profile_parameters
 # ros2 launch mavros px4.launch fcu_url:=tcp://127.0.0.1:5762@
 # ros2 launch zed_display_rviz2 display_zed_cam.launch.py camera_model:=<camera model>
 
+# in ardupilot sitl use: param set SIM_GPS_TYPE 0 and param set SIM_GPS2_TYPE 0 to disable gps
+
+
 class DroneControllerNode(Node):
-    """
-    NOTE: currently in a early stage of development.
-    this is a node to control the drone.
-    Drones Mission:
-    1. Takeoff and climb to specified altitude. during this time the drone will save the landing pads position using the zed camera.
-    2. search the area for an avocado until timeout. this is done by moving the drone in the area and rotating the drone. 
-    NOTE: Currently drone just moves to a few random positions.
-    3. if an avocado is found drone will lock on to its position and move towards it. NOTE: later there will be a mechanism to take the avocado.
-    4. if an avocado is not found drone will go the landing pads position save during takeoff and land using vision landing.
-    """
 
     def __init__(self):
         super().__init__('drone_controller_node')
@@ -105,7 +98,7 @@ class DroneControllerNode(Node):
         self.avocado_target_sub = self.create_subscription(PointStamped, '/my_drone/avocado_target_position', self.avocado_target_callback, SENSOR_QOS)
         
         # publisher to send landing_target messages to mavros
-        self.landing_target_pub = self.create_publisher(PoseStamped, '/mavros/landing_target/pose', qos_profile=TARGET_QOS )
+        self.landing_target_pub = self.create_publisher(PoseStamped, '/mavros/landing_target/pose_in', qos_profile=TARGET_QOS )
         
 
     def avocado_target_callback(self, msg):
@@ -182,25 +175,17 @@ class DroneControllerNode(Node):
         self.get_logger().debug('Local position: {}'.format(msg.pose.position))     
         
     # send a setpoint message to move the vehicle to a local position
-    def move_local(self, x, y, z, wait=True, error_tolerance = 0.5, timeout = 60):
-        """ Move the vehicle to a local position. keeping the current rotation. 
-            if wait is true pauses until drone reaches target within error tolerance.
-            
-        Args:
-            x (float): x coordinate drone will move to in LOCAL_NED frame.
-            y (float): y coordinate drone will move to in LOCAL_NED frame.
-            z (float): z coordinate drone will move to in LOCAL_NED frame.
-            wait (bool, optional): if true wait until drone reach within error_tolerance of the target.
-            error_tolerance (float): Error tolerance for drones position in meters. Only used when wait is True.
-            timeout (int, optional): seconds to wait for drone tp reach the target position. Only used when wait is True.
+    def move_local(self, x:float, y:float, z:float, wait_for_pos: bool = True, error_tolerance: float=0.1):
         """
+        Move the vehicle to a local position. keeping the current rotation.
+        """ 
         
         try:
             x, y, z = float(x), float(y), float(z)
         
         except Exception as e:
             self.get_logger().error(e)
-                
+
         # set the header
         self.last_target_msg.header.stamp = self.get_clock().now().to_msg()
         # set the position
@@ -218,10 +203,8 @@ class DroneControllerNode(Node):
         self.target_pub.publish(self.last_target_msg)
         self.get_logger().info('Moving to {} {} {}'.format(x,y,z))
         
-        # wait for drone to reach the pos
-        if wait:
-            # use the last sent message
-            self.wait_until_pos_reached(check_last_target_pose=True, error_tolerance=error_tolerance, timeout=timeout)
+        if wait_for_pos:
+            self.wait_until_pos_reached(x, y, z, error_tolerance=error_tolerance)
         
 
 
@@ -361,10 +344,6 @@ class DroneControllerNode(Node):
 
         self.landing_target_pub.publish(msg_to_send)
         print("sent vision landing message")
-        
-        
-        
-
 
     def start(self):
         
@@ -425,67 +404,44 @@ class DroneControllerNode(Node):
             self.get_logger().error('Failed to reach target altitude') 
         
         # ------- Takeoff end ------- #
-       
-        self.move_local(0, 0, 0)
-        self.wait_until_pos_reached(0.0, 0.0, 0.0)
-        #self.do_360(90, 2)
-        self.move_local(30, 0, 0)
+
+        
+        # positions the drone will move to.
+        # NOTE: Implement a way to load mission from file
+        self.move_local(2, 0, 3)
+        self.move_local(0, 2, 3)
+        self.move_local(-2, 0, 3)
+        self.move_local(0, -2, 3)
+        self.move_local(2, 0, 3)
+        self.move_local(0, 0, 3)
         
         # ------- landing start ------- #
        
-        
         # if landing pad was never found land using RTL mode
-        if self.landing_target_position is None or self.landing_target_drone_position is None:
+        if self.landing_target_position is None: # or self.landing_target_drone_position is None:
             self.get_logger().warning('No landing target position received. Landing using RTL mode')
-            self.change_mode('RTL')
+            self.change_mode('LAND')
             self.get_logger().info('Requested RTL mode')
         
-         # NOTE:just for testing. can be imporved.    
+        # if position was found start vision landing
         else:
-            self.get_logger().info('Starting Vision Landing ...')
-
-            # first move to the landing target position. if it was found a while ago the drone might have moved away from it.
-            self.move_local(self.landing_target_drone_position.pose.position.x + self.landing_target_position.point.x, self.landing_target_drone_position.pose.position.y + self.landing_target_position.point.y, takeoff_altitude)
-            
-            # wait for drone to reach desired position
-            if self.wait_until_pos_reached(error_tolerance=0.1): # use lower error tolerance
-                self.get_logger().info('Ready to land at target position. current position: {}'.format(self.local_pos.pose.position))
-                
-            else:
-                self.get_logger().error('Failed to reach target position during vision landing')    
-
-            self.get_logger().info('Starting descent ...')
-            while rclpy.ok():
-                rclpy.spin_once(self) # spin to update variables
-
-                # first align with the landing target. then move down slowly by the descend rate. and correct the x and y alignment continuously.
-                target_x = self.landing_target_drone_position.pose.position.x + self.landing_target_position.point.x
-                target_y = self.landing_target_drone_position.pose.position.y + self.landing_target_position.point.y
-                target_z = self.landing_target_drone_position.pose.position.z + self.landing_target_position.point.z
-                
-                # if reached descend threshold set the mode to land and break the loop
-                if target_z - self.local_pos.pose.position.z < descend_threshold:
-                    self.get_logger().info('Reached descend threshold. Landing')
-                    self.change_mode('LAND')
-                    self.get_logger().info('Requested LAND mode')
-                    break
-                
-                # move to landing target position. align with the landing target first. then move down. descend rate is used to move down slowly.
-                self.move_local(target_x, target_y, self.local_pos.pose.position.z - descend_rate)
-                # wait for drone to reach desired position
-                if self.wait_until_pos_reached(error_tolerance=0.05): # use lower error tolerance
-                    self.get_logger().debug('Reached target position. current position: {}'.format(self.local_pos.pose.position))
-                else:
-                    self.get_logger().error('Failed to reach target position')
+            self.get_logger().info("Vision landing started")
+            self.is_landing_with_vision = True
         
                 
+        while self.is_landing_with_vision:
+            pos_to_send = {'x' : self.landing_target_position.pose.position.x, 
+                           'y' : self.landing_target_position.pose.position.y,
+                           'z' : self.landing_target_position.pose.position.z}
+            
+            self.send_landing_target(pos_to_send)
+            rclpy.spin_once(self)
 
         
         ##################################
         #         Mission end            #
         ##################################
         
-
         while rclpy.ok():
             rclpy.spin_once(self)
 
