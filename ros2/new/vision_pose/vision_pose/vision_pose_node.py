@@ -12,20 +12,6 @@ sub_qos = rclpy.qos.QoSProfile(
 class VisionPoseNode(Node):
     def __init__(self):
         super().__init__("vision_pose_node")
-        # send both PoseWithCovarianceStamped and PoseStamped just in case
-        
-        self.vision_pose_cov_sub = self.create_subscription(
-            msg_type=PoseWithCovarianceStamped,
-            topic="/zed/zed_node/pose_with_covariance",
-            callback=self.vision_pose_cov_callback,
-            qos_profile=sub_qos
-            )
-
-        self.vision_pose_cov_pub = self.create_publisher(
-            msg_type=PoseWithCovarianceStamped,
-            topic="/mavros/vision_pose/pose_cov",
-            qos_profile=sub_qos,
-            )
 
         self.vision_pose_sub = self.create_subscription(
             msg_type=PoseStamped,
@@ -40,14 +26,12 @@ class VisionPoseNode(Node):
             qos_profile=sub_qos,
             )
 
-    def vision_pose_cov_callback(self, msg):
-        self.vision_pose_cov_pub.publish(msg)
-        print(msg)
-    
-    def vision_pose_callback(self, msg):
-        self.vision_pose_pub.publish(msg)
-        print(msg)
-
+        self.last_pose = PoseStamped()
+        
+        
+    def vision_pose_callback(self, msg:PoseStamped):
+        self.last_pose = msg
+        self.vision_pose_pub.publish(self.last_pose)
 
 def main():
     rclpy.init()
