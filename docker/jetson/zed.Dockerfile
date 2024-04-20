@@ -93,14 +93,18 @@ RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/install/setup.bash && \
 RUN pip install transforms3d setuptools==58.2.0
 
 # copy the package
-COPY drone_pkg /root/ros2_ws/src/drone_pkg
+COPY drone_vision_pkg /root/ros2_ws/src/drone_pkg
 
 WORKDIR /root/ros2_ws/
 # build drone_pkg
 RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/install/setup.bash && \
     colcon build --packages-select drone_pkg"
 
-
+# Check that all the dependencies are satisfied
+WORKDIR /root/ros2_ws
+RUN apt-get update -y || true && rosdep update && \
+  rosdep install --from-paths src --ignore-src -r -y && \
+  rm -rf /var/lib/apt/lists/*
 
 WORKDIR /root/ros2_ws
 
@@ -117,5 +121,3 @@ CMD ["bash"]
 # -v ${HOME}/zed_docker_ai/:/usr/local/zed/resources/ \
 #  dev:trt_zed2
 
-# ros2 launch zed_wrapper zed_camera.launch.py camera_model:=
-#

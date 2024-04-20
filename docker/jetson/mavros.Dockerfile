@@ -26,7 +26,7 @@ ENTRYPOINT [ "/bash_scripts/ros_entrypoint.sh" ]
 
 CMD ["bash"]
 
-# docker run -v /dev/shm:/dev/shm --net=host -it mavros:test2 ros2 launch mavros apm.launch fcu_url:=udp://:14550@localhost:5762
+# docker run -v /dev/shm:/dev/shm --net=host -it mavros:test2 ros2 launch drone_control_pkg mavros.launch.py fcu_url:=udp://:14550@localhost:5762
 
 
 
