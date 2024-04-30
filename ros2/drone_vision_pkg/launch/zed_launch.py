@@ -28,6 +28,8 @@ default_config_common = os.path.join(
         'zed_common.yaml'
 )
 
+
+
 def launch_setup(context, *args, **kwargs):
     
     # Launch configuration variables
@@ -44,6 +46,12 @@ def launch_setup(context, *args, **kwargs):
     if camera_name_val == '':
         camera_name_val = 'zed'
     
+    ros_override_path = os.path.join(
+        get_package_share_directory("drone_vision_pkg"),
+        'config',
+        camera_model_val + '.yaml'
+    )
+
     zed_wrapper_launch = IncludeLaunchDescription(
         launch_description_source=PythonLaunchDescriptionSource([
             get_package_share_directory('zed_wrapper'),
@@ -56,12 +64,20 @@ def launch_setup(context, *args, **kwargs):
             'publish_tf' : publish_tf,
             'publish_map_tf' : publish_map_tf,
             'publish_imu_tf' : publish_imu_tf,
-            'xacro_path' : zed_xacro_path,
-            'config_path' : default_config_common
+            'xacro_path' : default_xacro_path,
+            'config_path' : default_config_common,
+            'ros_params_override_path' : ros_override_path
         }.items(),
     )
-
-    return [zed_wrapper_launch,]
+    
+    vision_pose_node = Node(
+        package="drone_vision_pkg",
+        executable="vision_pose_node",
+        output="screen"
+    )
+    
+    
+    return [zed_wrapper_launch, vision_pose_node]
 
 def generate_launch_description():
     return LaunchDescription([

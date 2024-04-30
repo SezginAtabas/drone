@@ -393,7 +393,7 @@ class DroneControllerNode(Node):
         else:
             self.get_logger().error('Failed to arm')
         
-        
+        return 
         ##################################
         #          start mission         #
         ##################################    

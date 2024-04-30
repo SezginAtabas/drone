@@ -5,7 +5,7 @@
   <xacro:arg name="use_zed_localization" default="true" />
 
   <!-- Include the robot  -->
-  <xacro:include filename="$(find drone_launch)/urdf/drone_body.xacro" />
+  <xacro:include filename="$(find drone_vision_pkg)/urdf/drone_body.xacro" />
 
   <!-- Add one ZED Camera -->
   <xacro:include filename="$(find zed_wrapper)/urdf/zed_macro.urdf.xacro" />@
@@ -15,7 +15,7 @@
       <parent link="base_link"/>
       <child link="$(arg camera_name)_camera_link"/>
       <origin
-        xyz="0.15 0.0 0.06"
+        xyz="0.12 0.0 0.08"
         rpy="0 0 0"
       />
   </joint>

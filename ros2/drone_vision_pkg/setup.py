@@ -31,7 +31,7 @@ setup(
         'console_scripts': [
             'drone_vision_node = drone_vision_pkg.drone_vision_node:main',
             'trt_node = drone_vision_pkg.trt_node:main',
-            'vision_pose_node = drone_vision_pkg.vision_pose_node:main'
+            'vision_pose_node = drone_vision_pkg.vision_pose_node:main',
         ],
     },
 )

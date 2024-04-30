@@ -93,26 +93,16 @@ RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/install/setup.bash && \
 RUN pip install transforms3d setuptools==58.2.0
 
 # copy the package
-COPY drone_vision_pkg /root/ros2_ws/src/drone_pkg
+COPY drone_vision_pkg /root/ros2_ws/src/
 
 WORKDIR /root/ros2_ws/
 # build drone_pkg
 RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/install/setup.bash && \
-    colcon build --packages-select drone_pkg"
+    colcon build --packages-select drone_vision_pkg"
 
-# Check that all the dependencies are satisfied
-WORKDIR /root/ros2_ws
-RUN apt-get update -y || true && rosdep update && \
-  rosdep install --from-paths src --ignore-src -r -y && \
-  rm -rf /var/lib/apt/lists/*
+RUN echo "source /opt/ros/humble/install/setup.bash" >> ~/.bashrc \ 
+    && echo "source /root/ros2_ws/install/local_setup.bash" >> ~/.bashrc
 
-WORKDIR /root/ros2_ws
-
-# Setup environment variables
-COPY ros_entrypoint_jetson.sh /sbin/ros_entrypoint.sh
-RUN sudo chmod 755 /sbin/ros_entrypoint.sh
-
-ENTRYPOINT ["/sbin/ros_entrypoint.sh"]
 CMD ["bash"]
 
 
@@ -121,3 +111,5 @@ CMD ["bash"]
 # -v ${HOME}/zed_docker_ai/:/usr/local/zed/resources/ \
 #  dev:trt_zed2
 
+# ros2 launch zed_wrapper zed_camera.launch.py camera_model:=
+#
