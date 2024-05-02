@@ -1,0 +1,27 @@
+
+services:
+  mavros_container:
+    image: dev:mavros2
+    privileged: true
+    ipc: host
+    pid: host
+    volumes:
+      - /dev:/dev
+    entrypoint: ["/bin/bash", "-c", "source /opt/ros/humble/setup.bash && source /root/ros2_ws/install/local_setup.bash && ros2 launch drone_control_pkg mavros.launch.py"]
+
+  zed_container:
+    image: xtrana:ros2
+    runtime: nvidia
+    privileged: true
+    ipc: host
+    pid: host
+    depends_on:
+      - mavros_container
+    environment:
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - DISPLAY
+    volumes:
+      - /dev:/dev
+      - /tmp/.X11-unix/:/tmp/.X11-unix
+      - ./entrypoint.sh:/entrypoint.sh
+    entrypoint: ["/bin/bash", "-c", "/entrypoint.sh"]

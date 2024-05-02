@@ -28,8 +28,6 @@ default_config_common = os.path.join(
         'zed_common.yaml'
 )
 
-
-
 def launch_setup(context, *args, **kwargs):
     
     # Launch configuration variables
@@ -97,12 +95,12 @@ def generate_launch_description():
             choices=['true', 'false']),
         DeclareLaunchArgument(
             'publish_tf',
-            default_value='true',
+            default_value='false',
             description='Enable publication of the `odom -> camera_link` TF.',
             choices=['true', 'false']),
         DeclareLaunchArgument(
             'publish_map_tf',
-            default_value='true',
+            default_value='false',
             description='Enable publication of the `map -> odom` TF. Note: Ignored if `publish_tf` is False.',
             choices=['true', 'false']),
         DeclareLaunchArgument(

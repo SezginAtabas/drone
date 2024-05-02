@@ -360,7 +360,7 @@ class DroneControllerNode(Node):
 
 
         # some vars to be used during flight
-        takeoff_altitude = 3.0
+        takeoff_altitude = 0.5
         descend_rate = 0.1 # meters
         descend_threshold = 1.0 # meters
 

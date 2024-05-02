@@ -51,14 +51,14 @@
 /mavros/**/global_position:
   ros__parameters:
     frame_id: "map"             # origin frame
-    child_frame_id: "base_link" # body-fixed frame
+    child_frame_id: "odom" # body-fixed frame
     rot_covariance: 99999.0   # covariance for attitude?
     gps_uere: 1.0             # User Equivalent Range Error (UERE) of GPS sensor (m)
     use_relative_alt: true    # use relative altitude for local coordinates
     tf.send: false               # send TF?
     tf.frame_id: "map"  # TF frame_id
     tf.global_frame_id: "earth"  # TF earth frame_id
-    tf.child_frame_id: "base_link" # TF child_frame_id
+    tf.child_frame_id: "odom" # TF child_frame_id
 
 # imu_pub
 /mavros/**/imu:
@@ -76,7 +76,7 @@
     frame_id: "map"
     tf.send: true
     tf.frame_id: "map"
-    tf.child_frame_id: "base_link"
+    tf.child_frame_id: "odom"
     tf.send_fcu: false
 
 # param
@@ -233,8 +233,8 @@
 # odom
 /mavros/**/odometry:
   ros__parameters:
-    fcu.odom_parent_id_des: "map"    # desired parent frame rotation of the FCU's odometry
-    fcu.odom_child_id_des: "map"    # desired child frame rotation of the FCU's odometry
+    fcu.odom_parent_id_des: "odom"    # desired parent frame rotation of the FCU's odometry
+    fcu.odom_child_id_des: "odom"    # desired child frame rotation of the FCU's odometry
 
 # px4flow
 /mavros/**/px4flow:

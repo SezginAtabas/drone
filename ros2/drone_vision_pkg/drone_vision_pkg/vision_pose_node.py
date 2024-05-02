@@ -33,7 +33,7 @@ class VisionPoseNode(Node):
         
         pub_msg = PoseStamped()
         pub_msg.header.stamp = msg.header.stamp
-        pub_msg.header.frame_id = "map"
+        pub_msg.header.frame_id = msg.header.frame_id
         pub_msg.pose.position.x = msg.pose.pose.position.x
         pub_msg.pose.position.y = msg.pose.pose.position.y
         pub_msg.pose.position.z = msg.pose.pose.position.z

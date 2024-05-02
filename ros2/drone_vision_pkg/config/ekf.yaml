@@ -4,12 +4,12 @@ ekf_filter_node_odom:
     two_d_mode: false
     print_diagnostics: true
     debug: false
-    publish_tf: false
+    publish_tf: true
 
     map_frame: map
     odom_frame: odom
     base_link_frame: base_link
-    world_frame: map
+    world_frame: odom
     
     # since zed imu data is internally fused we dont fuse it here.
 
@@ -24,5 +24,3 @@ ekf_filter_node_odom:
     odom0_relative: true
     odom0_queue_size: 5
     odom0_pose_use_child_frame: false
-
-    
