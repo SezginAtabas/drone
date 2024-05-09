@@ -27,7 +27,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'drone_control_node = drone_control_pkg.drone_control_node:main'
+            'drone_control_node = drone_control_pkg.drone_control_node:main',
+            'drone_setup_node = drone_control_pkg.drone_setup_node:main'
         ],
     },
 )

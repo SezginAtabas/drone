@@ -13,4 +13,8 @@ WORKDIR /root/ros2_ws
 RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/install/setup.bash && \
     colcon build --packages-select drone_vision_pkg"
 
+
+RUN echo "source /opt/ros/humble/install/setup.bash" >> ~/.bashrc \ 
+    && echo "source /root/ros2_ws/install/local_setup.bash" >> ~/.bashrc
+
 CMD ["bash"]
