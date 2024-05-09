@@ -6,12 +6,31 @@
         general:
             camera_model: 'zedm'
             camera_name: 'zedm' # usually overwritten by launch file
-            grab_resolution: 'AUTO' # The native camera grab resolution. 'HD2K', 'HD1080', 'HD720', 'VGA', 'AUTO'
+            grab_resolution: 'HD720' # The native camera grab resolution. 'HD2K', 'HD1080', 'HD720', 'VGA', 'AUTO'
             grab_frame_rate: 60 # ZED SDK internal grabbing rate
 
         depth:
-            min_depth: 0.1 # Min: 0.1, Max: 3.0
+            min_depth: 0.0 # Min: 0.1, Max: 3.0
             max_depth: 10.0 # Max: 20.0
-        
 
-
+        pos_tracking:
+            pos_tracking_enabled: true # True to enable positional tracking from start
+            pos_tracking_mode: "GEN_2" # Matches the ZED SDK setting: 'GEN_1', 'GEN_2'
+            imu_fusion: true # enable/disable IMU fusion. When set to false, only the optical odometry will be used.
+            publish_tf: true # [usually overwritten by launch file] publish `odom -> camera_link` TF
+            publish_map_tf: true # [usually overwritten by launch file] publish `map -> odom` TF
+            map_frame: "map"
+            odometry_frame: "odom"
+            area_memory_db_path: ""
+            area_memory: false # Enable to detect loop closure
+            reset_odom_with_loop_closure: true # Re-initialize odometry to the last valid pose when loop closure happens (reset camera odometry drift)
+            depth_min_range: 0.2 # Set this value for removing fixed zones of the robot in the FoV of the camerafrom the visual odometry evaluation
+            set_as_static: false # If 'true' the camera will be static and not move in the environment
+            set_gravity_as_origin: true # If 'true' align the positional tracking world to imu gravity measurement. Keep the yaw from the user initial pose.
+            floor_alignment: false # Enable to automatically calculate camera/floor offset
+            initial_base_pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] # Initial position of the `camera_link` frame in the map -> [X, Y, Z, R, P, Y]
+            path_pub_rate: 2.0 # [DYNAMIC] - Camera trajectory publishing frequency
+            path_max_count: 15 # use '-1' for unlimited path size
+            two_d_mode: true # Force navigation on a plane. If true the Z value will be fixed to 'fixed_z_value', roll and pitch to zero
+            fixed_z_value: 0.00 # Value to be used for Z coordinate if `two_d_mode` is true
+            transform_time_offset: 0.0 # The value added to the timestamp of `map->odom` and `odom->camera_link` transform being generated
