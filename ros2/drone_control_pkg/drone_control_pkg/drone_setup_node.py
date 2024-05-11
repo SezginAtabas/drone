@@ -1,25 +1,25 @@
 import rclpy
 from rclpy.node import Node
+from rclpy import qos
 
-from mavros_msgs.msg import State
+from mavros_msgs.msg import State, HomePosition
 from mavros_msgs.srv import CommandLong, SetMode
 
-from geometry_msgs.msg import PoseStamped
-
-import numpy as np
+from geographic_msgs.msg import GeoPointStamped, GeoPoint
+from geometry_msgs.msg import Point, Quaternion, Vector3
 
 # QoS profile used for the state subscriber topics.
-STATE_QOS = rclpy.qos.QoSProfile(
+STATE_QOS = qos.QoSProfile(
     depth=10,
     durability=rclpy.qos.QoSDurabilityPolicy.TRANSIENT_LOCAL,
     history=rclpy.qos.QoSHistoryPolicy.KEEP_ALL,
 )
 
 # QoS profile used for the pose subscriber topics.
-POSE_QOS = rclpy.qos.QoSProfile(
+PUB_QOS = qos.QoSProfile(
     depth=10,
-    durability=rclpy.qos.QoSDurabilityPolicy.TRANSIENT_LOCAL,
-    history=rclpy.qos.QoSHistoryPolicy.KEEP_LAST,
+    durability=qos.QoSDurabilityPolicy.TRANSIENT_LOCAL,
+    reliability=qos.QoSReliabilityPolicy.RELIABLE,
 )
 
 class DroneSetup(Node):
@@ -34,7 +34,17 @@ class DroneSetup(Node):
         self.cmd_cli = self.create_client(CommandLong, '/mavros/cmd/command')
         while not self.cmd_cli.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('command service not available, waiting again...')
-
+        
+        # publisher to set HOME_POSITION
+        self.set_home_pub = self.create_publisher(HomePosition, '/mavros/home_position/set', PUB_QOS)
+            
+        # publisher to set GPS_GLOBAL_ORIGIN
+        # https://mavlink.io/en/messages/common.html#SET_GPS_GLOBAL_ORIGIN
+        self.set_gp_pub = self.create_publisher(GeoPointStamped, '/mavros/global_position/set_gp_origin', PUB_QOS)
+        
+        self.set_gp_origin()
+        self.set_home_pos()
+        
         # request a periodic messages from the fcu. We do this because sometimes fcu does not send needed messages to mavros.
         self.set_message_interval(32, 100000) # local position
         self.set_message_interval(30, 100000) # attitude
@@ -65,7 +75,49 @@ class DroneSetup(Node):
         future = self.cmd_cli.call_async(cmd_req)
         rclpy.spin_until_future_complete(self, future)
 
-
+    
+    def set_home_pos(self):
+        self.get_logger().info("Setting home position.")
+        msg = HomePosition()
+        
+        msg.header.stamp = self.get_clock().now().to_msg()
+        
+        # Geo point
+        msg.geo.altitude = 0.0
+        msg.geo.latitude = 0.0
+        msg.geo.longitude = 0.0
+        
+        # position
+        msg.position.x = 0.0
+        msg.position.y = 0.0
+        msg.position.z = 0.0
+        
+        # orientation
+        msg.orientation.x = 0.0
+        msg.orientation.y = 0.0
+        msg.orientation.z = 0.0
+        msg.orientation.w = 1.0
+        
+        # approach. Vector3
+        msg.approach.x = 0.0
+        msg.approach.y = 0.0
+        msg.approach.z = 1.0
+        
+        self.set_home_pub.publish(msg)
+    
+    
+    def set_gp_origin(self):
+        self.get_logger().info("Setting global position origin")
+        msg = GeoPointStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        
+        msg.position.altitude = 0.0
+        msg.position.latitude = 0.0
+        msg.position.longitude = 0.0
+        
+        self.set_gp_pub.publish(msg)
+        
+        
 def main(args=None):
     rclpy.init(args=args)
     node = DroneSetup()

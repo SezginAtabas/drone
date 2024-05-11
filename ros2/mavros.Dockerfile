@@ -10,6 +10,10 @@ RUN apt-get update && apt-get install -y \
 
 RUN pip install numpy transforms3d setuptools==58.2.0
 
+
+RUN . /opt/ros/$ROS_DISTRO/setup.sh && \
+    ros2 run mavros install_geographiclib_datasets.sh
+
 # copy the package
 COPY drone_control_pkg /root/ros2_ws/src
 
@@ -17,12 +21,6 @@ COPY drone_control_pkg /root/ros2_ws/src
 WORKDIR /root/ros2_ws/
 RUN . /opt/ros/${ROS_DISTRO}/setup.sh && \
     colcon build
-
-# Check that all the dependencies are satisfied
-WORKDIR /root/ros2_ws
-RUN apt-get update -y || true && rosdep update && \
-  rosdep install --from-paths src --ignore-src -r -y && \
-  rm -rf /var/lib/apt/lists/*
 
 RUN . /opt/ros/$ROS_DISTRO/setup.sh && \
     ros2 run mavros install_geographiclib_datasets.sh

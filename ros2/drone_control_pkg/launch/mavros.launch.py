@@ -25,7 +25,7 @@ def launch_setup(context, *args, **kwargs):
     parameters=[pth_param0, pth_param1, pth_param2],
     arguments=["--ros-args", "--log-level", log_level]
   )
-  
+    
   return [mavros_node]
   
 def generate_launch_description():

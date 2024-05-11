@@ -13,8 +13,18 @@ def generate_launch_description():
         launch_ros.actions.Node(
             package='robot_localization',
             executable='ekf_node',
+            name='ekf_filter_node_map',
+            output='screen',
+            parameters=[os.path.join(get_package_share_directory("drone_vision_pkg"), 'config', 'ekf.yaml')],
+            remappings=[('odometry/filtered', '/ekf/global')]  
+           ),
+        
+        launch_ros.actions.Node(
+            package='robot_localization',
+            executable='ekf_node',
             name='ekf_filter_node_odom',
             output='screen',
             parameters=[os.path.join(get_package_share_directory("drone_vision_pkg"), 'config', 'ekf.yaml')],
+            remappings=[('odometry/filtered', '/ekf/local')]  
            ),
 ])

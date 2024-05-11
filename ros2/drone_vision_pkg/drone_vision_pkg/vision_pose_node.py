@@ -5,28 +5,33 @@ from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
 
 from rclpy.qos import qos_profile_sensor_data
+import rclpy.qos
 
-TARGET_QOS = rclpy.qos.QoSProfile(
-    depth=5, 
-    durability=rclpy.qos.QoSDurabilityPolicy.TRANSIENT_LOCAL.VOLATILE,  
-    reliability=rclpy.qos.ReliabilityPolicy.RELIABLE,
-)
 
 class VisionPoseNode(Node):
     def __init__(self):
         super().__init__("vision_pose_node")
 
+        # QoS profile of the publisher
+        pub_qos = rclpy.qos.QoSProfile(
+            reliability=rclpy.qos.ReliabilityPolicy.RELIABLE,
+            durability=rclpy.qos.DurabilityPolicy.VOLATILE,
+            depth=10
+        )
+        
+        # Local pose estimate from the ekf filter. Fused VIO + IMU from the zed camera.
         self.vision_pose_sub = self.create_subscription(
             msg_type=Odometry,
-            topic="/odometry/filtered",
+            topic="/ekf/local",
             callback=self.vision_pose_callback,
             qos_profile=qos_profile_sensor_data
             )
-
+        
+        # Publisher for the local pose
         self.vision_pose_pub = self.create_publisher(
             msg_type=PoseStamped,
             topic="/mavros/vision_pose/pose",
-            qos_profile=TARGET_QOS
+            qos_profile=pub_qos
             )
         
     def vision_pose_callback(self, msg:Odometry):

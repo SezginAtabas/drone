@@ -22,7 +22,7 @@ STATE_QOS = rclpy.qos.QoSProfile(
 
 TARGET_QOS = rclpy.qos.QoSProfile(
     depth=20, 
-    durability=rclpy.qos.QoSDurabilityPolicy.TRANSIENT_LOCAL.VOLATILE,  
+    durability=rclpy.qos.DurabilityPolicy.TRANSIENT_LOCAL,  
     reliability=rclpy.qos.ReliabilityPolicy.RELIABLE,
 )
 
@@ -100,6 +100,7 @@ class DroneControllerNode(Node):
         # publisher to send landing_target messages to mavros
         self.landing_target_pub = self.create_publisher(PoseStamped, '/mavros/landing_target/pose_in', qos_profile=TARGET_QOS )
         
+        self.start()
 
     def avocado_target_callback(self, msg):
         # save the last avocado target position message
@@ -209,7 +210,7 @@ class DroneControllerNode(Node):
         
 
 
-    def wait_until_pos_reached(self, target_x = 0.0, target_y = 0.0, target_z = 0.0, check_last_target_pose = True, error_tolerance=0.5, timeout=60):
+    def wait_until_pos_reached(self, target_x = 0.0, target_y = 0.0, target_z = 0.0, check_last_target_pose = True, error_tolerance=0.5, timeout=10):
         """
         Wait until the last setpoint message is reached.
         Only use target_x, target_y, target_z if check_last_target_pose is false. used for the takeoff and other stuff that does not use the last target pose.
@@ -345,22 +346,18 @@ class DroneControllerNode(Node):
 
         self.landing_target_pub.publish(msg_to_send)
         print("sent vision landing message")
-        
-        
-        
-
 
     def start(self):
         
         # send current detection target to the trt_node. which is landing_pad at start
-        msg = String()
-        msg.data = self.current_detection_target
-        self.get_logger().info('Setting current detection target to {}'.format(msg.data))
-        self.current_detection_target_pub.publish(msg)
+        #msg = String()
+        #msg.data = self.current_detection_target
+        #self.get_logger().info('Setting current detection target to {}'.format(msg.data))
+        #self.current_detection_target_pub.publish(msg)
 
 
         # some vars to be used during flight
-        takeoff_altitude = 0.5
+        takeoff_altitude = 1.0
         descend_rate = 0.1 # meters
         descend_threshold = 1.0 # meters
 
@@ -379,9 +376,15 @@ class DroneControllerNode(Node):
         self.request_data_stream(31, 100000) # attitude
 
         # change mode to GUIDED
-        self.change_mode('GUIDED')
-        self.get_logger().info('Requested GUIDED mode')
+        #self.change_mode('GUIDED')
+        #self.get_logger().info('Requested GUIDED mode')
 
+        mode_req = SetMode.Request()
+        # https://mavlink.io/en/messages/common.html#MAV_MODE_GUIDED_DISARMED
+        mode_req.base_mode = 88 
+        future = self.mode_cli.call_async(mode_req)
+        rclpy.spin_until_future_complete(self, future) 
+    
         # try to arm the drone.
         for _ in range(60):
             self.arm_request()
@@ -393,7 +396,7 @@ class DroneControllerNode(Node):
         else:
             self.get_logger().error('Failed to arm')
         
-        return 
+        
         ##################################
         #          start mission         #
         ##################################    
@@ -401,24 +404,27 @@ class DroneControllerNode(Node):
         # take off and climb to 3 meters at current location
         self.takeoff(takeoff_altitude)
         self.get_logger().info('Takeoff request sent.')
-
+        self.wait_for(60)
         # wait for drone to reach desired altitude
-        if self.wait_until_pos_reached(target_x=self.local_pos.pose.position.x, target_y=self.local_pos.pose.position.y, target_z=takeoff_altitude, check_last_target_pose=False):
-            self.get_logger().info('Reached target altitude')
-        else:
-            self.get_logger().error('Failed to reach target altitude') 
+        #if self.wait_until_pos_reached(target_x=self.local_pos.pose.position.x, target_y=self.local_pos.pose.position.y, target_z=takeoff_altitude, check_last_target_pose=False):
+        #    self.get_logger().info('Reached target altitude')
+        #else:
+        #    self.get_logger().error('Failed to reach target altitude') 
         
+    
+    
+        self.change_mode('LAND')
         # ------- Takeoff end ------- #
 
-        
+        return
         # positions the drone will move to.
         # NOTE: Implement a way to load mission from file
-        self.move_local(1, 0, 1)
-        self.move_local(0, 1, 1)
-        self.move_local(-1, 0, 1)
-        self.move_local(0, -1, 1)
-        self.move_local(1, 0, 1)
-        self.move_local(0, 0, 1)
+        #self.move_local(1, 0, 1)
+        #self.move_local(0, 1, 1)
+        #self.move_local(-1, 0, 1)
+        #self.move_local(0, -1, 1)
+        #self.move_local(1, 0, 1)
+        #self.move_local(0, 0, 1)
         
         # ------- landing start ------- #
        
@@ -453,7 +459,7 @@ class DroneControllerNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     drone_controller_node = DroneControllerNode()
-    drone_controller_node.start()
+    rclpy.spin(drone_controller_node)
     rclpy.shutdown()
 
 
