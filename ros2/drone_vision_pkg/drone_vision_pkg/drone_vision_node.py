@@ -1,6 +1,6 @@
 def main():
-    print('Hi from drone_vision_pkg.')
+    print("Hi from drone_vision_pkg.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
