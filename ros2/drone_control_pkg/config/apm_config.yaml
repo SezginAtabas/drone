@@ -10,8 +10,8 @@
 # sys_status
 /mavros/**/sys:
   ros__parameters:
-    min_voltage: [10.0]   # diagnostics min voltage, use a vector i.e. [16.2, 16.0] for multiple batteries, up-to 10 are supported
-                        # to achieve the same on a ROS launch file do: <rosparam param="sys/min_voltage">[16.2, 16.0]</rosparam>
+    min_voltage: [ 10.0 ]   # diagnostics min voltage, use a vector i.e. [16.2, 16.0] for multiple batteries, up-to 10 are supported
+    # to achieve the same on a ROS launch file do: <rosparam param="sys/min_voltage">[16.2, 16.0]</rosparam>
     disable_diag: false # disable all sys_status diagnostics, except heartbeat
     heartbeat_rate: 1.0    # send heartbeat rate in Hertz
     heartbeat_mav_type: "ONBOARD_CONTROLLER"
@@ -113,7 +113,7 @@
     tf.child_frame_id: "target_position"
     tf.rate_limit: 50.0
     mav_frame: LOCAL_NED
-  
+
 # guided_target
 /mavros/**/guided_target:
   ros__parameters:
@@ -135,8 +135,8 @@
   ros__parameters:
     pull_after_gcs: true  # update mission if gcs updates
     use_mission_item_int: true # use the MISSION_ITEM_INT message instead of MISSION_ITEM
-                              # for uploading waypoints to FCU
-                             
+      # for uploading waypoints to FCU
+
 # --- mavros extras plugins (same order) ---
 
 # adsb
@@ -212,7 +212,7 @@
     tf.frame_id: "landing_target"
     tf.child_frame_id: "camera_center"
     tf.rate_limit: 10.0
-    target_size: {x:  0.3, y:  0.3}
+    target_size: { x: 0.3, y: 0.3 }
 
 # mocap_pose_estimate
 /mavros/**/mocap:
@@ -268,8 +268,8 @@
   ros__parameters:
     count: 2           # number of wheels to compute odometry
     use_rpm: false     # use wheel's RPM instead of cumulative distance to compute odometry
-    wheel0: {x: 0.0, y: -0.15, radius: 0.05} # x-, y-offset (m,NED) and radius (m)
-    wheel1: {x: 0.0, y:  0.15, radius: 0.05} # x-, y-offset (m,NED) and radius (m)
+    wheel0: { x: 0.0, y: -0.15, radius: 0.05 } # x-, y-offset (m,NED) and radius (m)
+    wheel1: { x: 0.0, y: 0.15, radius: 0.05 } # x-, y-offset (m,NED) and radius (m)
     send_raw: true              # send wheel's RPM and cumulative distance (~/wheel_odometry/rpm, ~/wheel_odometry/distance)
     send_twist: false           # send geometry_msgs/TwistWithCovarianceStamped instead of nav_msgs/Odometry
     frame_id: "map"             # origin frame

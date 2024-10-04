@@ -1,15 +1,13 @@
-
 import cv2
 import random
 import time
 import numpy as np
 
-import tensorrt as trt    
+import tensorrt as trt
 import pycuda.driver as cuda
 import pycuda.autoinit
 
 import pyzed.sl as sl
-
 
 
 """
@@ -18,51 +16,53 @@ landing_134.engine
 input "images" with shape(1, 3, 384, 640) DataType.FLOAT
 output "output0" with shape(1, 5, 5040) DataType.FLOAT
 """
+
+
 def plot_one_box(x, img, color=None, label=None, line_thickness=None):
-        
 
-            
-        """
-        description: Plots one bounding box on image img,
-                    this function comes from YoLov8 project.
-        param: 
-            x:      a box likes [x1,y1,x2,y2]
-            img:    a opencv image object
-            color:  color to draw rectangle, such as (0,255,0)
-            label:  str
-            line_thickness: int
-        return:
-            no return
+    """
+    description: Plots one bounding box on image img,
+                this function comes from YoLov8 project.
+    param:
+        x:      a box likes [x1,y1,x2,y2]
+        img:    a opencv image object
+        color:  color to draw rectangle, such as (0,255,0)
+        label:  str
+        line_thickness: int
+    return:
+        no return
 
-        """
-        tl = (
-                line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1
-        )  # line/font thickness
-        color = color or [random.randint(0, 255) for _ in range(3)]
-        c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
-        cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
-        if label:
-            tf = max(tl - 1, 1)  # font thickness
-            t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
-            c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
-            cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)  # filled
-            cv2.putText(
-                img,
-                label,
-                (c1[0], c1[1] - 2),
-                0,
-                tl / 3,
-                [225, 255, 255],
-                thickness=tf,
-                lineType=cv2.LINE_AA,
-            )
+    """
+    tl = (
+        line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1
+    )  # line/font thickness
+    color = color or [random.randint(0, 255) for _ in range(3)]
+    c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
+    cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
+    if label:
+        tf = max(tl - 1, 1)  # font thickness
+        t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
+        c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
+        cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)  # filled
+        cv2.putText(
+            img,
+            label,
+            (c1[0], c1[1] - 2),
+            0,
+            tl / 3,
+            [225, 255, 255],
+            thickness=tf,
+            lineType=cv2.LINE_AA,
+        )
+
+
 def xyxy2xywh(box):
     x1 = box[0]
     y1 = box[1]
     x2 = box[2]
     y2 = box[3]
-    x = (x1 + x2)/2
-    y = (y1 + y2)/2
+    x = (x1 + x2) / 2
+    y = (y1 + y2) / 2
     w = x2 - x1
     h = y2 - y1
     return [x, y, w, h]
@@ -71,14 +71,14 @@ def xyxy2xywh(box):
 # from https://github.com/stereolabs/zed-sdk/blob/master/object%20detection/custom%20detector/python/pytorch_yolov8/detector.py
 # used to convert bounding box output to objects for ZED SDK
 def xywh2abcd(xywh, im_shape):
-    
+
     output = np.zeros((4, 2))
 
     # Center / Width / Height -> BBox corners coordinates
-    x_min = (xywh[0] - 0.5*xywh[2]) #* im_shape[1]
-    x_max = (xywh[0] + 0.5*xywh[2]) #* im_shape[1]
-    y_min = (xywh[1] - 0.5*xywh[3]) #* im_shape[0]
-    y_max = (xywh[1] + 0.5*xywh[3]) #* im_shape[0]
+    x_min = xywh[0] - 0.5 * xywh[2]  # * im_shape[1]
+    x_max = xywh[0] + 0.5 * xywh[2]  # * im_shape[1]
+    y_min = xywh[1] - 0.5 * xywh[3]  # * im_shape[0]
+    y_max = xywh[1] + 0.5 * xywh[3]  # * im_shape[0]
 
     # A ------ B
     # | Object |
@@ -105,10 +105,10 @@ def to_custom_box(detections, img):
     # loop over all detections
     for det in detections:
         # detection data
-        bbox_xyxy, conf, cls = det[:4],det[4], det[5]
+        bbox_xyxy, conf, cls = det[:4], det[4], det[5]
         # models output is in xyxy format. convert to xywh then abcd
         bbox_abcd = xywh2abcd(xyxy2xywh(bbox_xyxy), img)
-        
+
         # convert to zed SDK format
         obj = sl.CustomBoxObjectData()
         obj.bounding_box_2d = bbox_abcd
@@ -117,66 +117,66 @@ def to_custom_box(detections, img):
         obj.is_grounded = False
         obj.unique_object_id = sl.generate_unique_id()
         output.append(obj)
-    return output   
-
-
-
+    return output
 
 
 def main():
 
-    engine_file = '/home/xtrana/dev/trt/landing_134.engine'
-    engine_file_avocado = '/home/xtrana/dev/trt/avo_n_42.engine' 
-
+    engine_file = "/home/xtrana/dev/trt/landing_134.engine"
+    engine_file_avocado = "/home/xtrana/dev/trt/avo_n_42.engine"
 
     INPUT_SIZE = (384, 640)
     OUTPUT_SHAPE = [1, 5, 5040]
-    
-    #open zed camera and set the parameters
+
+    # open zed camera and set the parameters
     zed = sl.Camera()
-    init_params = sl.InitParameters()  
+    init_params = sl.InitParameters()
     init_params_resolution = sl.RESOLUTION.HD720
     init_params.camera_fps = 30
     init_params.sdk_verbose = 1
     init_params.coordinate_units = sl.UNIT.METER
     init_params.depth_mode = sl.DEPTH_MODE.ULTRA
-    init_params.coordinate_system = sl.COORDINATE_SYSTEM.RIGHT_HANDED_Z_UP_X_FWD # used within ros
+    init_params.coordinate_system = (
+        sl.COORDINATE_SYSTEM.RIGHT_HANDED_Z_UP_X_FWD
+    )  # used within ros
     init_params.depth_maximum_distance = 20
-    
 
     # open the camera with runtime params
     err = zed.open(init_params)
     if err != sl.ERROR_CODE.SUCCESS:
         exit(1)
 
-
-
-
     # setup object detection and Position tracking params
-        
+
     positional_tracking_parameters = sl.PositionalTrackingParameters()
 
     # if the camera is static uncomment to have better performance
-    #positional_tracking_parameters.set_as_static = True
+    # positional_tracking_parameters.set_as_static = True
 
-    zed.enable_positional_tracking(positional_tracking_parameters) # enable pos tracking
-
+    zed.enable_positional_tracking(
+        positional_tracking_parameters
+    )  # enable pos tracking
 
     obj_param = sl.ObjectDetectionParameters()
-    obj_param.detection_model = sl.OBJECT_DETECTION_MODEL.CUSTOM_BOX_OBJECTS # custom obj detection
-    obj_param.enable_tracking = True # enables tracking with ID
-    zed.enable_object_detection(obj_param) # enable tracking
+    obj_param.detection_model = (
+        sl.OBJECT_DETECTION_MODEL.CUSTOM_BOX_OBJECTS
+    )  # custom obj detection
+    obj_param.enable_tracking = True  # enables tracking with ID
+    zed.enable_object_detection(obj_param)  # enable tracking
 
-
-
-    #create sl.Mat objects
-    img_zed= sl.Mat()
+    # create sl.Mat objects
+    img_zed = sl.Mat()
     depth = sl.Mat()
-    
-    # create the trt engine for landing pad and avocado
-    y_trt = yolov8_trt(engine_file_path=engine_file,input_size=INPUT_SIZE, output_shape=OUTPUT_SHAPE)
-    avo_trt = yolov8_trt(engine_file_path=engine_file_avocado,input_size=INPUT_SIZE, output_shape=OUTPUT_SHAPE)
 
+    # create the trt engine for landing pad and avocado
+    y_trt = yolov8_trt(
+        engine_file_path=engine_file, input_size=INPUT_SIZE, output_shape=OUTPUT_SHAPE
+    )
+    avo_trt = yolov8_trt(
+        engine_file_path=engine_file_avocado,
+        input_size=INPUT_SIZE,
+        output_shape=OUTPUT_SHAPE,
+    )
 
     # start time to calculate when to swich between avocado and landing pad
     start_time = time.time()
@@ -185,17 +185,15 @@ def main():
 
     found_img = False
 
-  
-    
     objects = sl.Objects()
     obj_runtime_param = sl.ObjectDetectionRuntimeParameters()
-    
+
     while zed.grab() == sl.ERROR_CODE.SUCCESS:
-        #grab an image in sl.mat
+        # grab an image in sl.mat
         zed.retrieve_image(img_zed, sl.VIEW.LEFT)
 
         counter_start = time.perf_counter()
-        #use get_data() to get the numpy array
+        # use get_data() to get the numpy array
         img_np = img_zed.get_data()
         frame = cv2.cvtColor(img_np, cv2.COLOR_BGRA2BGR)
 
@@ -211,12 +209,12 @@ def main():
 
         """
 
-        #run inference based on the flag
+        # run inference based on the flag
         if avocado:
-            img, results = avo_trt.infer(input_img=frame)          
+            img, results = avo_trt.infer(input_img=frame)
         else:
             img, results = y_trt.infer(input_img=frame)
-        
+
         boxes = []
         for result in results:
             predicitions = result[0]
@@ -230,7 +228,7 @@ def main():
                 cls = prediction[5]
 
                 boxes.append(bbox)
-        
+
         detections = to_custom_box(predicitions, img_np)
         zed.ingest_custom_box_objects(detections)
         zed.retrieve_measure(depth, sl.MEASURE.DEPTH)
@@ -238,23 +236,17 @@ def main():
         zed.retrieve_objects(objects, obj_runtime_param)
         for object in objects.object_list:
             print("{} {}".format(object.id, object.position))
-        
-        
-
-            
-           
-                
 
         img_out = img
         # calculate the depth of the detections and plot
         for box in boxes:
-               
-            #print(box)
+
+            # print(box)
             center_point_x = int((box[0] + box[2]) / 2)
             center_point_y = int((box[1] + box[3]) / 2)
 
-            #find the depth at the center of the target
-            err,depth_value = depth.get_value(center_point_x,center_point_y)
+            # find the depth at the center of the target
+            err, depth_value = depth.get_value(center_point_x, center_point_y)
 
             camera_info = zed.get_camera_information()
             calibration_params = camera_info.camera_configuration.calibration_parameters
@@ -263,56 +255,49 @@ def main():
             f_y = calibration_params.left_cam.fy
             c_x = calibration_params.left_cam.cx
             c_y = calibration_params.left_cam.cy
-            
-            #convert to 3d coordinates
+
+            # convert to 3d coordinates
             u, v = center_point_x, center_point_y
-            
+
             Z = depth_value
             X = ((u - c_x) * Z) / (f_x)
             Y = ((v - c_y) * Z) / (f_y)
-            
-            
 
-            #label_text = f"x:{X:.2f} y:{Y:.2f} z:{Z:.2f}"
-            
+            # label_text = f"x:{X:.2f} y:{Y:.2f} z:{Z:.2f}"
+
             label_text = f""
 
-            #plot the results
-            plot_one_box(box,img_out,label=label_text)
+            # plot the results
+            plot_one_box(box, img_out, label=label_text)
             counter_end = time.perf_counter()
-            fps =  1 / (counter_end - counter_start)
+            fps = 1 / (counter_end - counter_start)
             # print(fps)
 
-                  
-
-
-
-        if cv2.waitKey(1) & 0xff == ord('q'):
+        if cv2.waitKey(1) & 0xFF == ord("q"):
             break
-        
-        cv2.imshow("vid",img_out)
 
-    
-    #close everything at the end
+        cv2.imshow("vid", img_out)
+
+    # close everything at the end
     y_trt.destroy()
     avo_trt.destroy()
-    zed.close()  
-    cv2.destroyAllWindows()  
-    
+    zed.close()
+    cv2.destroyAllWindows()
+
+
 class yolov8_trt(object):
-    #initiate the engine and setup stuff
+    # initiate the engine and setup stuff
     def __init__(self, engine_file_path, input_size, output_shape):
         self.ctx = cuda.Device(0).make_context()
         TRT_LOGGER = trt.Logger(trt.Logger.INFO)
         runtime = trt.Runtime(TRT_LOGGER)
-        stream = cuda.Stream()        
+        stream = cuda.Stream()
 
-        #deserialize the engine from file
+        # deserialize the engine from file
         with open(engine_file_path, "rb") as f:
-            engine = runtime.deserialize_cuda_engine(f.read())  
+            engine = runtime.deserialize_cuda_engine(f.read())
 
-        self.context = engine.create_execution_context() 
-
+        self.context = engine.create_execution_context()
 
         host_inputs = []
         cuda_inputs = []
@@ -320,26 +305,22 @@ class yolov8_trt(object):
         cuda_outputs = []
         bindings = []
 
-
-        #allocate memory for input and output
+        # allocate memory for input and output
         for binding in engine:
-            #create page-locked memory buffers and allocate memory on host and device
+            # create page-locked memory buffers and allocate memory on host and device
             size = trt.volume(engine.get_tensor_shape(binding))
             host_mem = cuda.pagelocked_empty(size, np.float32)
             cuda_mem = cuda.mem_alloc(host_mem.nbytes)
-        
-             #append the device buffer to device bindings
+
+            # append the device buffer to device bindings
             bindings.append(int(cuda_mem))
-            #append the binding the the input or output list
+            # append the binding the the input or output list
             if binding == "images":
                 host_inputs.append(host_mem)
                 cuda_inputs.append(cuda_mem)
             else:
                 host_outputs.append(host_mem)
                 cuda_outputs.append(cuda_mem)
-
-
-
 
         # store the values
         self.stream = stream
@@ -352,13 +333,12 @@ class yolov8_trt(object):
         self.input_size = input_size
         self.output_shape = output_shape
 
-    
     def infer(self, input_img):
 
         # push the context to the gpu
         self.ctx.push()
 
-        #set the values
+        # set the values
         input_size = self.input_size
         output_shape = self.output_shape
         engine = self.engine
@@ -369,107 +349,106 @@ class yolov8_trt(object):
         bindings = self.bindings
         stream = self.stream
         context = self.context
-        
+
         input_img_raw = input_img
-        
-       
-                
-                
-        #preprocess
-        input_img, _, _, _ = self.preprocess_image(input_img_raw,input_size[0],input_size[1])
-        #copy input image to host buffer
-        np.copyto(host_inputs[0],input_img.ravel())    
-        #start the counter  
+
+        # preprocess
+        input_img, _, _, _ = self.preprocess_image(
+            input_img_raw, input_size[0], input_size[1]
+        )
+        # copy input image to host buffer
+        np.copyto(host_inputs[0], input_img.ravel())
+        # start the counter
         start = time.time()
-        #transfer the input data to gpu for execution
-        cuda.memcpy_htod_async(cuda_inputs[0],host_inputs[0],stream)    
-         #run inference
-        context.execute_async_v2(bindings=bindings,stream_handle=stream.handle)
-        #transfer predicitions from the gpu
-        cuda.memcpy_dtoh_async(host_outputs[0],cuda_outputs[0],stream)
+        # transfer the input data to gpu for execution
+        cuda.memcpy_htod_async(cuda_inputs[0], host_inputs[0], stream)
+        # run inference
+        context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
+        # transfer predicitions from the gpu
+        cuda.memcpy_dtoh_async(host_outputs[0], cuda_outputs[0], stream)
         stream.synchronize()
 
-        #end the counter
+        # end the counter
         end = time.time()
 
         # remove the context from the gpu
         self.ctx.pop()
 
-
-
-
-        #amount of time spent
+        # amount of time spent
         time_spent = str(end - start)
-        output = host_outputs[0]     
-        
+        output = host_outputs[0]
 
         final_output = input_img_raw
-        
-        output = output.reshape(output_shape[0],output_shape[1],output_shape[2])
-        results = self.postprocess(preds = output,img = input_img,orig_img =  input_img_raw,
-        OBJ_THRESH = 0.5,NMS_THRESH = 0.3)   
-        
+
+        output = output.reshape(output_shape[0], output_shape[1], output_shape[2])
+        results = self.postprocess(
+            preds=output,
+            img=input_img,
+            orig_img=input_img_raw,
+            OBJ_THRESH=0.5,
+            NMS_THRESH=0.3,
+        )
 
         return final_output, results
 
     def destroy(self):
-        #remove the context from the gpu
+        # remove the context from the gpu
         self.ctx.pop()
 
-    def preprocess_image(self, raw_bgr_image,input_h,input_w):
-            """
-            description: Convert BGR image to RGB,
-                        resize and pad it to target size, normalize to [0,1],
-                        transform to NCHW format.
-            param:
-                input_image_path: str, image path
-            return:
-                image:  the processed image
-                image_raw: the original image
-                h: original height
-                w: original width
-            """
-            image_raw = raw_bgr_image
-            h, w, c = image_raw.shape
-            image = cv2.cvtColor(image_raw, cv2.COLOR_BGR2RGB)
-            # Calculate widht and height and paddings
-            r_w = input_w / w
-            r_h = input_h / h
-            if r_h > r_w:
-                tw = input_w
-                th = int(r_w * h)
-                tx1 = tx2 = 0
-                ty1 = int((input_h - th) / 2)
-                ty2 = input_h - th - ty1
-            else:
-                tw = int(r_h * w)
-                th = input_h
-                tx1 = int((input_w - tw) / 2)
-                tx2 = input_w - tw - tx1
-                ty1 = ty2 = 0
-            # Resize the image with long side while maintaining ratio
-            image = cv2.resize(image, (tw, th))
-            # Pad the short side with (128,128,128)
-            image = cv2.copyMakeBorder(
-                image, ty1, ty2, tx1, tx2, cv2.BORDER_CONSTANT, None, (128, 128, 128)
-            )
-            image = image.astype(np.float32)
-            # Normalize to [0,1]
-            image /= 255.0
-            # HWC to CHW format:
-            image = np.transpose(image, [2, 0, 1])
-            # CHW to NCHW format
-            image = np.expand_dims(image, axis=0)
-            # Convert the image to row-major order, also known as "C order":
-            image = np.ascontiguousarray(image)
-            return image, image_raw, h, w
+    def preprocess_image(self, raw_bgr_image, input_h, input_w):
+        """
+        description: Convert BGR image to RGB,
+                    resize and pad it to target size, normalize to [0,1],
+                    transform to NCHW format.
+        param:
+            input_image_path: str, image path
+        return:
+            image:  the processed image
+            image_raw: the original image
+            h: original height
+            w: original width
+        """
+        image_raw = raw_bgr_image
+        h, w, c = image_raw.shape
+        image = cv2.cvtColor(image_raw, cv2.COLOR_BGR2RGB)
+        # Calculate widht and height and paddings
+        r_w = input_w / w
+        r_h = input_h / h
+        if r_h > r_w:
+            tw = input_w
+            th = int(r_w * h)
+            tx1 = tx2 = 0
+            ty1 = int((input_h - th) / 2)
+            ty2 = input_h - th - ty1
+        else:
+            tw = int(r_h * w)
+            th = input_h
+            tx1 = int((input_w - tw) / 2)
+            tx2 = input_w - tw - tx1
+            ty1 = ty2 = 0
+        # Resize the image with long side while maintaining ratio
+        image = cv2.resize(image, (tw, th))
+        # Pad the short side with (128,128,128)
+        image = cv2.copyMakeBorder(
+            image, ty1, ty2, tx1, tx2, cv2.BORDER_CONSTANT, None, (128, 128, 128)
+        )
+        image = image.astype(np.float32)
+        # Normalize to [0,1]
+        image /= 255.0
+        # HWC to CHW format:
+        image = np.transpose(image, [2, 0, 1])
+        # CHW to NCHW format
+        image = np.expand_dims(image, axis=0)
+        # Convert the image to row-major order, also known as "C order":
+        image = np.ascontiguousarray(image)
+        return image, image_raw, h, w
 
     def plot_one_box(self, x, img, color=None, label=None, line_thickness=None):
-            
+
         """
         description: Plots one bounding box on image img,
                     this function comes from YoLov8 project.
-        param: 
+        param:
             x:      a box likes [x1,y1,x2,y2]
             img:    a opencv image object
             color:  color to draw rectangle, such as (0,255,0)
@@ -480,7 +459,7 @@ class yolov8_trt(object):
 
         """
         tl = (
-                line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1
+            line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1
         )  # line/font thickness
         color = color or [random.randint(0, 255) for _ in range(3)]
         c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
@@ -500,6 +479,7 @@ class yolov8_trt(object):
                 thickness=tf,
                 lineType=cv2.LINE_AA,
             )
+
     def xywh2xyxy(self, x):
         y = np.copy(x)
         y[..., 0] = x[..., 0] - x[..., 2] / 2  # top left x
@@ -514,8 +494,12 @@ class yolov8_trt(object):
 
     def scale_boxes(self, img1_shape, boxes, img0_shape, ratio_pad=None):
         if ratio_pad is None:  # calculate from img0_shape
-            gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
-            pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (img1_shape[0] - img0_shape[0] * gain) / 2  # wh padding
+            gain = min(
+                img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1]
+            )  # gain  = old / new
+            pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (
+                img1_shape[0] - img0_shape[0] * gain
+            ) / 2  # wh padding
         else:
             gain = ratio_pad[0][0]
             pad = ratio_pad[1]
@@ -534,8 +518,8 @@ class yolov8_trt(object):
 
         return masks * ((r >= x1) * (r < x2) * (c >= y1) * (c < y2))
 
-    def sigmoid(self, x): 
-        return 1.0/(1+np.exp(-x))
+    def sigmoid(self, x):
+        return 1.0 / (1 + np.exp(-x))
 
     def nms(self, bboxes, scores, threshold=0.5):
         x1 = bboxes[:, 0]
@@ -550,7 +534,8 @@ class yolov8_trt(object):
             i = order[0]
             keep.append(i)
 
-            if order.size == 1: break
+            if order.size == 1:
+                break
             xx1 = np.maximum(x1[i], x1[order[1:]])
             yy1 = np.maximum(y1[i], y1[order[1:]])
             xx2 = np.minimum(x2[i], x2[order[1:]])
@@ -566,28 +551,32 @@ class yolov8_trt(object):
         return keep
 
     def non_max_suppression(
-            self,
-            prediction,
-            conf_thres=0.25,
-            iou_thres=0.45,
-            classes=None,
-            agnostic=False,
-            multi_label=False,
-            labels=(),
-            max_det=300,
-            nc=0,  # number of classes (optional)
+        self,
+        prediction,
+        conf_thres=0.25,
+        iou_thres=0.45,
+        classes=None,
+        agnostic=False,
+        multi_label=False,
+        labels=(),
+        max_det=300,
+        nc=0,  # number of classes (optional)
     ):
 
         # Checks
-        assert 0 <= conf_thres <= 1, f'Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0'
-        assert 0 <= iou_thres <= 1, f'Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0'
-        #print(prediction.shape)
-        #【lulu】prediction.shape[1]：box + cls + num_masks
-        bs = prediction.shape[0]              # batch size
+        assert (
+            0 <= conf_thres <= 1
+        ), f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
+        assert (
+            0 <= iou_thres <= 1
+        ), f"Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0"
+        # print(prediction.shape)
+        # 【lulu】prediction.shape[1]：box + cls + num_masks
+        bs = prediction.shape[0]  # batch size
         nc = nc or (prediction.shape[1] - 4)  # number of classes
-        nm = prediction.shape[1] - nc - 4     # num_masks
-        mi = 4 + nc                           # mask start index
-        xc = np.max(prediction[:, 4:mi], axis=1) > conf_thres ## 【lulu】
+        nm = prediction.shape[1] - nc - 4  # num_masks
+        mi = 4 + nc  # mask start index
+        xc = np.max(prediction[:, 4:mi], axis=1) > conf_thres  ## 【lulu】
 
         # Settings
         # min_wh = 2  # (pixels) minimum box width and height
@@ -599,36 +588,46 @@ class yolov8_trt(object):
         merge = False  # use merge-NMS
 
         t = time.time()
-        output = [np.zeros((0,6 + nm))] * bs ## 【lulu】
+        output = [np.zeros((0, 6 + nm))] * bs  ## 【lulu】
 
         for xi, x in enumerate(prediction):  # image_3c index, image_3c inference
             # Apply constraints
             # x[((x[:, 2:4] < min_wh) | (x[:, 2:4] > max_wh)).any(1), 4] = 0  # width-height
 
-            x = np.transpose(x,[1, 0])
-            x = x[xc[xi]] ## 【lulu】
+            x = np.transpose(x, [1, 0])
+            x = x[xc[xi]]  ## 【lulu】
 
             # If none remain process next image_3c
-            if not x.shape[0]: continue
-
+            if not x.shape[0]:
+                continue
 
             # Detections matrix nx6 (xyxy, conf, cls)
-            box, cls, mask = np.split(x, [4, 4+nc], axis=1) ## 【lulu】
-            box = self.xywh2xyxy(box)  # center_x, center_y, width, height) to (x1, y1, x2, y2)
+            box, cls, mask = np.split(x, [4, 4 + nc], axis=1)  ## 【lulu】
+            box = self.xywh2xyxy(
+                box
+            )  # center_x, center_y, width, height) to (x1, y1, x2, y2)
 
             j = np.argmax(cls, axis=1)  ## 【lulu】
-            conf = cls[np.array(range(j.shape[0])), j].reshape(-1,1)
-            x = np.concatenate([box, conf, j.reshape(-1,1), mask], axis=1)[conf.reshape(-1,)>conf_thres]
+            conf = cls[np.array(range(j.shape[0])), j].reshape(-1, 1)
+            x = np.concatenate([box, conf, j.reshape(-1, 1), mask], axis=1)[
+                conf.reshape(
+                    -1,
+                )
+                > conf_thres
+            ]
 
             # Check shape
             n = x.shape[0]  # number of boxes
-            if not n: continue
-            x = x[np.argsort(x[:, 4])[::-1][:max_nms]]  # sort by confidence and remove excess boxes 【lulu】
+            if not n:
+                continue
+            x = x[
+                np.argsort(x[:, 4])[::-1][:max_nms]
+            ]  # sort by confidence and remove excess boxes 【lulu】
 
             # Batched NMS
             c = x[:, 5:6] * max_wh  # classes
             boxes, scores = x[:, :4] + c, x[:, 4]  # boxes (offset by class), scores
-            i = self.nms(boxes, scores, iou_thres) ## 【lulu】
+            i = self.nms(boxes, scores, iou_thres)  ## 【lulu】
             i = i[:max_det]  # limit detections
 
             output[xi] = x[i]
@@ -637,7 +636,16 @@ class yolov8_trt(object):
                 break  # time limit exceeded
         return output
 
-    def letterbox(self, im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
+    def letterbox(
+        self,
+        im,
+        new_shape=(640, 640),
+        color=(114, 114, 114),
+        auto=True,
+        scaleFill=False,
+        scaleup=True,
+        stride=32,
+    ):
         # Resize and pad image while meeting stride-multiple constraints
         shape = im.shape[:2]  # current shape [height, width]
         if isinstance(new_shape, int):
@@ -657,7 +665,10 @@ class yolov8_trt(object):
         elif scaleFill:  # stretch
             dw, dh = 0.0, 0.0
             new_unpad = (new_shape[1], new_shape[0])
-            ratio = new_shape[1] / shape[1], new_shape[0] / shape[0]  # width, height ratios
+            ratio = (
+                new_shape[1] / shape[1],
+                new_shape[0] / shape[0],
+            )  # width, height ratios
 
         dw /= 2  # divide padding into 2 sides
         dh /= 2
@@ -666,17 +677,21 @@ class yolov8_trt(object):
             im = cv2.resize(im, new_unpad, interpolation=cv2.INTER_LINEAR)
         top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
         left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
-        im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
-        return im, ratio, (dw, dh)        
+        im = cv2.copyMakeBorder(
+            im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color
+        )  # add border
+        return im, ratio, (dw, dh)
 
     def postprocess(self, preds, img, orig_img, OBJ_THRESH, NMS_THRESH, classes=None):
-        p = self.non_max_suppression(preds,
-                                    OBJ_THRESH,
-                                    NMS_THRESH,
-                                    agnostic=False,
-                                    max_det=300,
-                                    nc=classes,
-                                    classes=None)        
+        p = self.non_max_suppression(
+            preds,
+            OBJ_THRESH,
+            NMS_THRESH,
+            agnostic=False,
+            max_det=300,
+            nc=classes,
+            classes=None,
+        )
         results = []
         for i, pred in enumerate(p):
             shape = orig_img.shape
@@ -691,18 +706,13 @@ class yolov8_trt(object):
         color_list = []
         np.random.seed(1)
         while 1:
-            a = list(map(int, np.random.choice(range(255),3)))
-            if(np.sum(a)==0): continue
+            a = list(map(int, np.random.choice(range(255), 3)))
+            if np.sum(a) == 0:
+                continue
             color_list.append(a)
-            if len(color_list)==class_num: break
+            if len(color_list) == class_num:
+                break
         return color_list
-
-
-
-
-
-
-
 
 
 if __name__ == "__main__":

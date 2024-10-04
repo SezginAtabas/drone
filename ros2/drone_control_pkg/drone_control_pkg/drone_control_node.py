@@ -68,23 +68,12 @@ class DroneControllerNode(Node):
         # create service clients
         # for long command (datastream requests)...
         self.cmd_cli = self.create_client(CommandLong, "/mavros/cmd/command")
-        while not self.cmd_cli.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info("command service not available, waiting again...")
-
         # for mode changes ...
         self.mode_cli = self.create_client(SetMode, "/mavros/set_mode")
-        while not self.mode_cli.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info("set_mode service not available, waiting again...")
-
         # for arming ...
         self.arm_cli = self.create_client(CommandBool, "/mavros/cmd/arming")
-        while not self.arm_cli.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info("arming service not available, waiting again...")
-
         # for takeoff
         self.takeoff_cli = self.create_client(CommandTOL, "/mavros/cmd/takeoff")
-        while not self.takeoff_cli.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info("takeoff service not available, waiting again...")
 
         # publisher for setpoint
         self.target_pub = self.create_publisher(

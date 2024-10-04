@@ -1,4 +1,3 @@
-
 services:
   mavros_container:
     image: dev:mavros2
@@ -8,7 +7,7 @@ services:
     volumes:
       - /dev:/dev
       - ./mavros_entrypoint.sh:/mavros_entrypoint.sh
-    entrypoint: ["/bin/bash", "-c", "/mavros_entrypoint.sh"]
+    entrypoint: [ "/bin/bash", "-c", "/mavros_entrypoint.sh" ]
 
   zed_container:
     image: xtrana:ros2
@@ -25,4 +24,4 @@ services:
       - /dev:/dev
       - /tmp/.X11-unix/:/tmp/.X11-unix
       - ./entrypoint.sh:/entrypoint.sh
-    entrypoint: ["/bin/bash", "-c", "/entrypoint.sh"]
+    entrypoint: [ "/bin/bash", "-c", "/entrypoint.sh" ]

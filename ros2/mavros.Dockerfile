@@ -25,7 +25,7 @@ RUN . /opt/ros/${ROS_DISTRO}/setup.sh && \
 RUN . /opt/ros/$ROS_DISTRO/setup.sh && \
     ros2 run mavros install_geographiclib_datasets.sh
 
-RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc \ 
+RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc \
     && echo "source /root/ros2_ws/install/local_setup.bash" >> ~/.bashrc
 
 CMD ["bash"]

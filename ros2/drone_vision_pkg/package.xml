@@ -1,35 +1,35 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>drone_vision_pkg</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="atabassezgin@gmail.com">sezgin_atabas</maintainer>
-  <license>TODO: License declaration</license>
+    <name>drone_vision_pkg</name>
+    <version>0.0.0</version>
+    <description>TODO: Package description</description>
+    <maintainer email="atabassezgin@gmail.com">sezgin_atabas</maintainer>
+    <license>TODO: License declaration</license>
 
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>cv2</exec_depend>
-  <exec_depend>cv_bridge</exec_depend>
-  <exec_depend>xacro</exec_depend>
-  <exec_depend>joint_state_publisher</exec_depend>
-  <exec_depend>robot_state_publisher</exec_depend>
-  <exec_depend>xacro</exec_depend>
-  <exec_depend>pycuda</exec_depend>
-  <exec_depend>tensorrt</exec_depend>
-  <exec_depend>transforms3d</exec_depend>
-  <exec_depend>numpy</exec_depend>
-  <exec_depend>norfair</exec_depend>
+    <exec_depend>rclpy</exec_depend>
+    <exec_depend>cv2</exec_depend>
+    <exec_depend>cv_bridge</exec_depend>
+    <exec_depend>xacro</exec_depend>
+    <exec_depend>joint_state_publisher</exec_depend>
+    <exec_depend>robot_state_publisher</exec_depend>
+    <exec_depend>xacro</exec_depend>
+    <exec_depend>pycuda</exec_depend>
+    <exec_depend>tensorrt</exec_depend>
+    <exec_depend>transforms3d</exec_depend>
+    <exec_depend>numpy</exec_depend>
+    <exec_depend>norfair</exec_depend>
 
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
+    <exec_depend>sensor_msgs</exec_depend>
+    <exec_depend>geometry_msgs</exec_depend>
+    <exec_depend>std_msgs</exec_depend>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
+    <test_depend>ament_copyright</test_depend>
+    <test_depend>ament_flake8</test_depend>
+    <test_depend>ament_pep257</test_depend>
+    <test_depend>python3-pytest</test_depend>
 
-  <export>
-    <build_type>ament_python</build_type>
-  </export>
+    <export>
+        <build_type>ament_python</build_type>
+    </export>
 </package>
